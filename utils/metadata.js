@@ -1,4 +1,5 @@
 var AUDIO_EXTENSIONS = ['.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.wma'];
+var LOCAL_MUSIC_DIR = 'music';
 
 window.pickFolder = async function() {
   try {
@@ -128,6 +129,88 @@ function readId3Tags(file) {
       });
     } catch (e) { resolve(null); }
   });
+}
+
+/* ---------- LOCAL MUSIC DIRECTORY SCAN ---------- */
+
+window.scanLocalMusicDir = async function(onProgress) {
+  var resp, html;
+  try {
+    resp = await fetch('/' + LOCAL_MUSIC_DIR + '/');
+    html = await resp.text();
+  } catch (e) { return null; }
+
+  var doc = new DOMParser().parseFromString(html, 'text/html');
+  var links = doc.querySelectorAll('a[href]');
+  var entries = [];
+
+  links.forEach(function(a) {
+    var href = a.getAttribute('href');
+    var name = decodeURIComponent(href.split('/').pop() || '');
+    if (!name) return;
+    var ext = name.toLowerCase().split('.').pop();
+    if (ext && AUDIO_EXTENSIONS.some(function(e) { return e.slice(1) === ext; })) {
+      var fullUrl = href;
+      if (fullUrl.indexOf('://') === -1) {
+        fullUrl = '/' + LOCAL_MUSIC_DIR + '/' + href.replace(/^\.\//, '');
+      }
+      entries.push({ url: fullUrl, name: name });
+    }
+  });
+
+  if (entries.length === 0) return null;
+
+  var songs = [];
+  var total = entries.length;
+
+  for (var i = 0; i < total; i += 5) {
+    var batch = entries.slice(i, i + 5);
+    var promises = batch.map(function(entry, idx) { return processUrlFile(entry.url, entry.name, i + idx); });
+    var results = await Promise.allSettled(promises);
+    results.forEach(function(r) {
+      if (r.status === 'fulfilled' && r.value) songs.push(r.value);
+    });
+    if (onProgress) onProgress(Math.min(songs.length, total), total);
+  }
+
+  return { folderName: LOCAL_MUSIC_DIR.toUpperCase(), files: null, songs: songs };
+};
+
+async function processUrlFile(url, name, index) {
+  var resp;
+  try {
+    resp = await fetch(url);
+  } catch (e) { return null; }
+  if (!resp.ok) return null;
+
+  var blob = await resp.blob();
+  var blobUrl = URL.createObjectURL(blob);
+
+  var song = {
+    id: 'song-' + Date.now() + '-' + index + '-' + Math.random().toString(36).slice(2, 8),
+    title: window.stripExtension(name),
+    artist: 'UNKNOWN ARTIST',
+    album: 'UNKNOWN ALBUM',
+    duration: 0,
+    trackNo: 0,
+    blobUrl: blobUrl,
+    albumArtUrl: null,
+    fileName: name
+  };
+
+  try {
+    var tags = await readId3Tags(blob);
+    if (tags) {
+      if (tags.title) song.title = tags.title;
+      if (tags.artist) song.artist = tags.artist;
+      if (tags.album) song.album = tags.album;
+      if (tags.trackNo) song.trackNo = tags.trackNo;
+      if (tags.picture) song.albumArtUrl = tags.picture;
+    }
+  } catch (e) {}
+
+  song.duration = await getAudioDuration(blobUrl);
+  return song;
 }
 
 function getAudioDuration(blobUrl) {

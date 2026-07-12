@@ -73,6 +73,27 @@ function useSongDatabase() {
     setLoading(false);
   }, [clearSongs]);
 
+  const loadLocalFolder = useCallback(async function() {
+    setLoading(true);
+    setLoadProgress({ current: 0, total: 0 });
+
+    var result = await window.scanLocalMusicDir(function(cur, total) {
+      setLoadProgress({ current: cur, total: total });
+    });
+
+    if (!result || !result.songs || result.songs.length === 0) {
+      setLoading(false);
+      return;
+    }
+
+    songsRef.current = result.songs;
+    setSongs(result.songs);
+    setFilteredSongs([].concat(result.songs));
+    setFolderName(result.folderName || 'LOCAL MUSIC');
+    setIsLoaded(true);
+    setLoading(false);
+  }, []);
+
   const searchSongs = useCallback(function(query) {
     if (!query.trim()) {
       setFilteredSongs([].concat(songsRef.current));
@@ -89,7 +110,7 @@ function useSongDatabase() {
   return {
     songs: songs, filteredSongs: filteredSongs, folderName: folderName,
     isLoaded: isLoaded, loading: loading, loadProgress: loadProgress,
-    loadFolder: loadFolder, searchSongs: searchSongs, songsRef: songsRef
+    loadFolder: loadFolder, loadLocalFolder: loadLocalFolder, searchSongs: searchSongs, songsRef: songsRef
   };
 }
 
@@ -899,6 +920,11 @@ function App() {
     document.addEventListener('keydown', onKey);
     return function() { document.removeEventListener('keydown', onKey); };
   }, [engine.togglePlay, engine.nextTrack, engine.prevTrack]);
+
+  /* Auto-scan local music directory on mount */
+  useEffect(function() {
+    db.loadLocalFolder();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   var trackCountText = db.isLoaded ? db.songs.length + ' TRACKS' : '0 TRACKS';
 
