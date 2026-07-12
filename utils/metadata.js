@@ -195,15 +195,6 @@ window.scanLocalMusicDir = async function(onProgress) {
 };
 
 async function processUrlFile(url, name, index) {
-  var resp;
-  try {
-    resp = await fetch(url);
-  } catch (e) { return null; }
-  if (!resp.ok) return null;
-
-  var blob = await resp.blob();
-  var blobUrl = URL.createObjectURL(blob);
-
   var song = {
     id: 'song-' + Date.now() + '-' + index + '-' + Math.random().toString(36).slice(2, 8),
     title: window.stripExtension(name),
@@ -211,13 +202,13 @@ async function processUrlFile(url, name, index) {
     album: 'UNKNOWN ALBUM',
     duration: 0,
     trackNo: 0,
-    blobUrl: blobUrl,
+    blobUrl: url,
     albumArtUrl: null,
     fileName: name
   };
 
   try {
-    var tags = await readId3Tags(blob);
+    var tags = await readId3TagsFromUrl(url);
     if (tags) {
       if (tags.title) song.title = tags.title;
       if (tags.artist) song.artist = tags.artist;
@@ -227,8 +218,40 @@ async function processUrlFile(url, name, index) {
     }
   } catch (e) {}
 
-  song.duration = await getAudioDuration(blobUrl);
+  song.duration = await getAudioDuration(url);
   return song;
+}
+
+function readId3TagsFromUrl(url) {
+  return new Promise(function(resolve) {
+    try {
+      if (typeof jsmediatags === 'undefined') { resolve(null); return; }
+      jsmediatags.read(url, {
+        onSuccess: function(result) {
+          var tags = result.tags || {};
+          var picture = tags.picture;
+          var albumArtUrl = null;
+
+          if (picture && picture.data) {
+            try {
+              var bytes = new Uint8Array(picture.data);
+              var blob = new Blob([bytes], { type: picture.format || 'image/jpeg' });
+              albumArtUrl = URL.createObjectURL(blob);
+            } catch (e) {}
+          }
+
+          resolve({
+            title: tags.title,
+            artist: tags.artist,
+            album: tags.album,
+            trackNo: tags.track,
+            picture: albumArtUrl
+          });
+        },
+        onError: function() { resolve(null); }
+      });
+    } catch (e) { resolve(null); }
+  });
 }
 
 function getAudioDuration(blobUrl) {
