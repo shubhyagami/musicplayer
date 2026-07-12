@@ -134,29 +134,47 @@ function readId3Tags(file) {
 /* ---------- LOCAL MUSIC DIRECTORY SCAN ---------- */
 
 window.scanLocalMusicDir = async function(onProgress) {
-  var resp, html;
-  try {
-    resp = await fetch('/' + LOCAL_MUSIC_DIR + '/');
-    html = await resp.text();
-  } catch (e) { return null; }
-
-  var doc = new DOMParser().parseFromString(html, 'text/html');
-  var links = doc.querySelectorAll('a[href]');
   var entries = [];
 
-  links.forEach(function(a) {
-    var href = a.getAttribute('href');
-    var name = decodeURIComponent(href.split('/').pop() || '');
-    if (!name) return;
-    var ext = name.toLowerCase().split('.').pop();
-    if (ext && AUDIO_EXTENSIONS.some(function(e) { return e.slice(1) === ext; })) {
-      var fullUrl = href;
-      if (fullUrl.indexOf('://') === -1) {
-        fullUrl = '/' + LOCAL_MUSIC_DIR + '/' + href.replace(/^\.\//, '');
+  /* Try manifest.json first (works on Vercel, GitHub Pages, etc.) */
+  try {
+    var manifestResp = await fetch('/' + LOCAL_MUSIC_DIR + '/manifest.json');
+    if (manifestResp.ok) {
+      var manifest = await manifestResp.json();
+      if (manifest && manifest.files && manifest.files.length > 0) {
+        manifest.files.forEach(function(name) {
+          entries.push({
+            url: '/' + LOCAL_MUSIC_DIR + '/' + encodeURIComponent(name),
+            name: name
+          });
+        });
       }
-      entries.push({ url: fullUrl, name: name });
     }
-  });
+  } catch (e) {}
+
+  /* Fall back to directory listing HTML parsing (local dev servers) */
+  if (entries.length === 0) {
+    try {
+      var resp = await fetch('/' + LOCAL_MUSIC_DIR + '/');
+      var html = await resp.text();
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var links = doc.querySelectorAll('a[href]');
+
+      links.forEach(function(a) {
+        var href = a.getAttribute('href');
+        var name = decodeURIComponent(href.split('/').pop() || '');
+        if (!name) return;
+        var ext = name.toLowerCase().split('.').pop();
+        if (ext && AUDIO_EXTENSIONS.some(function(e) { return e.slice(1) === ext; })) {
+          var fullUrl = href;
+          if (fullUrl.indexOf('://') === -1) {
+            fullUrl = '/' + LOCAL_MUSIC_DIR + '/' + href.replace(/^\.\//, '');
+          }
+          entries.push({ url: fullUrl, name: name });
+        }
+      });
+    } catch (e) {}
+  }
 
   if (entries.length === 0) return null;
 
