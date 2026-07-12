@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AUDIO STATION · RETRO MUSIC PLAYER</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="crt-overlay"></div>
+<div class="vignette"></div>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+
+<script src="utils/format.js"></script>
+<script src="utils/metadata.js"></script>
+<script src="utils/lyrics.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+/* ============================================================
+   HOOKS
+   ============================================================ */
+
+function useSongDatabase() {
+  const [songs, setSongs] = useState([]);
+  const [filteredSongs, setFilteredSongs] = useState([]);
+  const [folderName, setFolderName] = useState('');
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadProgress, setLoadProgress] = useState({ current: 0, total: 0 });
+  const songsRef = useRef([]);
+
+  const clearSongs = useCallback(function() {
+    songsRef.current.forEach(function(s) {
+      URL.revokeObjectURL(s.blobUrl);
+      if (s.albumArtUrl) URL.revokeObjectURL(s.albumArtUrl);
+    });
+    songsRef.current = [];
+    setSongs([]);
+    setFilteredSongs([]);
+    setIsLoaded(false);
+    setFolderName('');
+  }, []);
+
+  const loadFolder = useCallback(async function() {
+    clearSongs();
+    setLoading(true);
+    setLoadProgress({ current: 0, total: 0 });
+
+    var result = await window.pickFolder();
+    if (!result) result = await window.pickFolderFallback();
+    if (!result) { setLoading(false); return; }
+
+    setFolderName(result.folderName);
+
+    var loadedSongs = await window.processAudioFiles(result.files, function(cur, total) {
+      setLoadProgress({ current: cur, total: total });
+    });
+
+    songsRef.current = loadedSongs;
+    setSongs(loadedSongs);
+    setFilteredSongs([].concat(loadedSongs));
+    setIsLoaded(true);
+    setLoading(false);
+  }, [clearSongs]);
+
+  const searchSongs = useCallback(function(query) {
+    if (!query.trim()) {
+      setFilteredSongs([].concat(songsRef.current));
+      return;
+    }
+    var q = query.toLowerCase().trim();
+    setFilteredSongs(
+      songsRef.current.filter(function(s) {
+        return s.title.toLowerCase().includes(q) || s.artist.toLowerCase().includes(q);
+      })
+    );
+  }, []);
+
+  return {
+    songs: songs, filteredSongs: filteredSongs, folderName: folderName,
+    isLoaded: isLoaded, loading: loading, loadProgress: loadProgress,
+    loadFolder: loadFolder, searchSongs: searchSongs, songsRef: songsRef
+  };
+}
+
+function useAudioEngine(songs) {
+  var audioRef = useRef(null);
+  var audioCtxRef = useRef(null);
+  var sourceRef = useRef(null);
+  var gainRef = useRef(null);
+  var analyserRef = useRef(null);
+  var eqFiltersRef = useRef({});
+  var spatialRef = useRef({});
+  var isSeekingRef = useRef(false);
+
+  var getPersisted = function(key, fallback) {
+    try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch(e) { return fallback; }
+  };
+  var setPersisted = function(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch(e) {}
+  };
+
+  var [playerState, setPlayerState] = useState({
+    currentIndex: -1,
+    isPlaying: false,
+    shuffle: false,
+    repeatMode: 'off',
+    volume: getPersisted('player-volume', 0.8),
+    eq: getPersisted('eq-settings', { bass: 0, mid: 0, treble: 0 }),
+    spatial: getPersisted('spatial-settings', 0)
+  });
+
+  var [timeInfo, setTimeInfo] = useState({ current: 0, duration: 0 });
+  var [currentSong, setCurrentSong] = useState(null);
+  var stateRef = useRef(playerState);
+  stateRef.current = playerState;
+
+  var initAudioCtx = useCallback(function() {
+    if (audioCtxRef.current) return;
+    var audio = audioRef.current;
+    if (!audio) return;
+
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    var src = ctx.createMediaElementSource(audio);
+    var gain = ctx.createGain();
+    var analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+
+    /* EQ FILTERS */
+    var bass = ctx.createBiquadFilter();
+    bass.type = 'lowshelf'; bass.frequency.value = 200;
+    var mid = ctx.createBiquadFilter();
+    mid.type = 'peaking'; mid.frequency.value = 1000; mid.Q.value = 1;
+    var treble = ctx.createBiquadFilter();
+    treble.type = 'highshelf'; treble.frequency.value = 6000;
+
+    bass.gain.value = stateRef.current.eq.bass;
+    mid.gain.value = stateRef.current.eq.mid;
+    treble.gain.value = stateRef.current.eq.treble;
+
+    /* SPATIAL STAGE: Mid-Side widening + Convolution reverb */
+    var splitter = ctx.createChannelSplitter(2);
+    var merger = ctx.createChannelMerger(2);
+
+    // Mid bus
+    var midL = ctx.createGain(); midL.gain.value = 0.5;
+    var midR = ctx.createGain(); midR.gain.value = 0.5;
+    var midSum = ctx.createGain(); midSum.gain.value = 1.0;
+
+    // Side bus
+    var sideL = ctx.createGain(); sideL.gain.value = 0.5;
+    var sideRNeg = ctx.createGain(); sideRNeg.gain.value = -0.5;
+    var sideSum = ctx.createGain(); sideSum.gain.value = 1.0;
+    var widthGain = ctx.createGain();
+    widthGain.gain.value = 1.0 + stateRef.current.spatial * 0.015;
+
+    // Output mix
+    var mixL_M = ctx.createGain(); mixL_M.gain.value = 1.0;
+    var mixL_S = ctx.createGain(); mixL_S.gain.value = 1.0;
+    var mixR_M = ctx.createGain(); mixR_M.gain.value = 1.0;
+    var mixR_S_neg = ctx.createGain(); mixR_S_neg.gain.value = -1.0;
+
+    splitter.connect(midL, 0);
+    splitter.connect(midR, 1);
+    splitter.connect(sideL, 0);
+    splitter.connect(sideRNeg, 1);
+
+    midL.connect(midSum);
+    midR.connect(midSum);
+    sideL.connect(sideSum);
+    sideRNeg.connect(sideSum);
+
+    midSum.connect(mixL_M);
+    midSum.connect(mixR_M);
+    sideSum.connect(widthGain);
+    widthGain.connect(mixL_S);
+    widthGain.connect(mixR_S_neg);
+
+    mixL_M.connect(merger, 0, 0);
+    mixL_S.connect(merger, 0, 0);
+    mixR_M.connect(merger, 0, 1);
+    mixR_S_neg.connect(merger, 0, 1);
+
+    /* Convolution reverb */
+    var convolver = ctx.createConvolver();
+    convolver.buffer = createImpulseResponse(ctx, 1.5, 2.0);
+    var reverbGain = ctx.createGain();
+    reverbGain.gain.value = stateRef.current.spatial * 0.0025;
+
+    var dryGain = ctx.createGain();
+    dryGain.gain.value = 1.0;
+
+    /* Connect signal chain: source -> EQ -> spatial -> dry/wet -> master gain -> destination */
+    src.connect(bass);
+    bass.connect(mid);
+    mid.connect(treble);
+    treble.connect(splitter);
+    // splitter -> M/S processing -> merger (widened signal)
+
+    merger.connect(dryGain);
+    merger.connect(convolver);
+    convolver.connect(reverbGain);
+
+    dryGain.connect(gain);
+    reverbGain.connect(gain);
+    gain.connect(analyser);
+    analyser.connect(ctx.destination);
+
+    audioCtxRef.current = ctx;
+    sourceRef.current = src;
+    gainRef.current = gain;
+    analyserRef.current = analyser;
+    eqFiltersRef.current = { bass: bass, mid: mid, treble: treble };
+    spatialRef.current = { widthGain: widthGain, reverbGain: reverbGain };
+  }, []);
+
+  var playSong = useCallback(function(index) {
+    if (!songs || index < 0 || index >= songs.length) return;
+    var song = songs[index];
+
+    if (!audioCtxRef.current) initAudioCtx();
+    var audio = audioRef.current;
+    if (!audio) return;
+
+    if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume();
+
+    audio.src = song.blobUrl;
+    audio.load();
+    audio.play().then(function() {
+      setPlayerState(function(prev) { return Object.assign({}, prev, { currentIndex: index, isPlaying: true }); });
+      setCurrentSong(song);
+    }).catch(function(err) {
+      if (err.name !== 'AbortError') console.warn('Play failed:', err);
+    });
+  }, [songs, initAudioCtx]);
+
+  var togglePlay = useCallback(function() {
+    var audio = audioRef.current;
+    if (!audio || !songs.length) return;
+    var ps = stateRef.current;
+
+    if (ps.currentIndex < 0) { playSong(0); return; }
+    if (!audioCtxRef.current) initAudioCtx();
+    if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume();
+
+    if (audio.paused) {
+      audio.play().then(function() {
+        setPlayerState(function(prev) { return Object.assign({}, prev, { isPlaying: true }); });
+      });
+    } else {
+      audio.pause();
+      setPlayerState(function(prev) { return Object.assign({}, prev, { isPlaying: false }); });
+    }
+  }, [songs, playSong, initAudioCtx]);
+
+  var nextTrack = useCallback(function() {
+    var ps = stateRef.current;
+    if (!songs.length) return;
+    var next;
+    if (ps.shuffle) {
+      next = Math.floor(Math.random() * songs.length);
+      if (next === ps.currentIndex && songs.length > 1) next = (next + 1) % songs.length;
+    } else {
+      next = ps.currentIndex + 1;
+      if (next >= songs.length) {
+        if (ps.repeatMode === 'all') next = 0;
+        else { setPlayerState(function(prev) { return Object.assign({}, prev, { isPlaying: false }); }); return; }
+      }
+    }
+    playSong(next);
+  }, [songs, playSong]);
+
+  var prevTrack = useCallback(function() {
+    var audio = audioRef.current;
+    var ps = stateRef.current;
+    if (!songs.length || !audio) return;
+    if (audio.currentTime > 3) { audio.currentTime = 0; return; }
+    var prev = ps.currentIndex - 1;
+    playSong(prev < 0 ? songs.length - 1 : prev);
+  }, [songs, playSong]);
+
+  var seek = useCallback(function(time) {
+    var audio = audioRef.current;
+    if (audio) audio.currentTime = time;
+  }, []);
+
+  var setVolume = useCallback(function(vol) {
+    var clamped = Math.max(0, Math.min(1, vol));
+    if (gainRef.current) gainRef.current.gain.value = clamped;
+    setPlayerState(function(prev) { return Object.assign({}, prev, { volume: clamped }); });
+    setPersisted('player-volume', clamped);
+  }, []);
+
+  var setEQ = useCallback(function(band, value) {
+    var clamped = Math.max(-15, Math.min(15, value));
+    if (eqFiltersRef.current[band]) eqFiltersRef.current[band].gain.value = clamped;
+    setPlayerState(function(prev) {
+      var newEq = Object.assign({}, prev.eq);
+      newEq[band] = clamped;
+      setPersisted('eq-settings', newEq);
+      return Object.assign({}, prev, { eq: newEq });
+    });
+  }, []);
+
+  var setSpatial = useCallback(function(value) {
+    var clamped = Math.max(0, Math.min(100, value));
+    var spatial = spatialRef.current;
+    if (spatial.widthGain) spatial.widthGain.gain.value = 1.0 + clamped * 0.015;
+    if (spatial.reverbGain) spatial.reverbGain.gain.value = clamped * 0.0025;
+    setPlayerState(function(prev) {
+      setPersisted('spatial-settings', clamped);
+      return Object.assign({}, prev, { spatial: clamped });
+    });
+  }, []);
+
+  var toggleShuffle = useCallback(function() {
+    setPlayerState(function(prev) { return Object.assign({}, prev, { shuffle: !prev.shuffle }); });
+  }, []);
+
+  var cycleRepeat = useCallback(function() {
+    setPlayerState(function(prev) {
+      var modes = ['off', 'one', 'all'];
+      var next = modes[(modes.indexOf(prev.repeatMode) + 1) % 3];
+      return Object.assign({}, prev, { repeatMode: next });
+    });
+  }, []);
+
+  var toggleMute = useCallback(function() {
+    setPlayerState(function(prev) {
+      if (prev.volume > 0) {
+        if (gainRef.current) gainRef.current.gain.value = 0;
+        var r = Object.assign({}, prev, { _prevVolume: prev.volume, volume: 0 });
+        return r;
+      } else {
+        var restore = prev._prevVolume || 0.8;
+        if (gainRef.current) gainRef.current.gain.value = restore;
+        return Object.assign({}, prev, { volume: restore });
+      }
+    });
+  }, []);
+
+  useEffect(function() {
+    var audio = audioRef.current;
+    if (!audio) return;
+
+    var onTimeUpdate = function() {
+      if (!isSeekingRef.current) {
+        setTimeInfo({ current: audio.currentTime, duration: audio.duration || 0 });
+      }
+    };
+    var onLoadedMeta = function() {
+      setTimeInfo(function(prev) { return Object.assign({}, prev, { duration: audio.duration || 0 }); });
+    };
+    var onEnded = function() {
+      var ps = stateRef.current;
+      if (ps.repeatMode === 'one') {
+        audio.currentTime = 0;
+        audio.play();
+      } else {
+        nextTrack();
+      }
+    };
+
+    audio.addEventListener('timeupdate', onTimeUpdate);
+    audio.addEventListener('loadedmetadata', onLoadedMeta);
+    audio.addEventListener('ended', onEnded);
+    return function() {
+      audio.removeEventListener('timeupdate', onTimeUpdate);
+      audio.removeEventListener('loadedmetadata', onLoadedMeta);
+      audio.removeEventListener('ended', onEnded);
+    };
+  }, [nextTrack]);
+
+  return {
+    playerState: playerState,
+    timeInfo: timeInfo,
+    currentSong: currentSong,
+    audioRef: audioRef,
+    analyserRef: analyserRef,
+    playSong: playSong,
+    togglePlay: togglePlay,
+    nextTrack: nextTrack,
+    prevTrack: prevTrack,
+    seek: seek,
+    setVolume: setVolume,
+    setEQ: setEQ,
+    setSpatial: setSpatial,
+    toggleShuffle: toggleShuffle,
+    cycleRepeat: cycleRepeat,
+    toggleMute: toggleMute,
+    isSeekingRef: isSeekingRef
+  };
+}
+
+function createImpulseResponse(ctx, duration, decay) {
+  var sampleRate = ctx.sampleRate;
+  var length = sampleRate * duration;
+  var buffer = ctx.createBuffer(2, length, sampleRate);
+  for (var ch = 0; ch < 2; ch++) {
+    var data = buffer.getChannelData(ch);
+    for (var i = 0; i < length; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-(i / sampleRate) * decay);
+    }
+  }
+  return buffer;
+}
+
+/* ============================================================
+   COMPONENTS
+   ============================================================ */
+
+function RotaryKnob(props) {
+  var band = props.band;
+  var label = props.label;
+  var value = props.value;
+  var onChange = props.onChange;
+  var min = props.min != null ? props.min : -15;
+  var max = props.max != null ? props.max : 15;
+  var suffix = props.suffix || ' dB';
+
+  var knobRef = useRef(null);
+  var activeRef = useRef(null);
+  var moveHandlerRef = useRef(null);
+  var upHandlerRef = useRef(null);
+
+  useEffect(function() {
+    return function() {
+      if (moveHandlerRef.current) document.removeEventListener('pointermove', moveHandlerRef.current);
+      if (upHandlerRef.current) document.removeEventListener('pointerup', upHandlerRef.current);
+    };
+  }, []);
+
+  var handlePointerDown = useCallback(function(e) {
+    e.preventDefault();
+    activeRef.current = { startY: e.clientY, startGain: value };
+
+    moveHandlerRef.current = function(ev) {
+      if (!activeRef.current) return;
+      var deltaY = activeRef.current.startY - ev.clientY;
+      var rangePx = 200;
+      var deltaNorm = Math.max(-1, Math.min(1, deltaY / rangePx));
+      var range = max - min;
+      var newVal = Math.round(Math.max(min, Math.min(max, activeRef.current.startGain + deltaNorm * range)));
+      if (newVal !== value) onChange(newVal);
+    };
+
+    upHandlerRef.current = function() {
+      if (knobRef.current) knobRef.current.classList.remove('knob-active');
+      activeRef.current = null;
+      document.removeEventListener('pointermove', moveHandlerRef.current);
+      document.removeEventListener('pointerup', upHandlerRef.current);
+      moveHandlerRef.current = null;
+      upHandlerRef.current = null;
+    };
+
+    document.addEventListener('pointermove', moveHandlerRef.current);
+    document.addEventListener('pointerup', upHandlerRef.current);
+    knobRef.current.classList.add('knob-active');
+  }, [value, onChange, min, max]);
+
+  var norm = (value - min) / (max - min);
+  var angle = -135 + norm * 270;
+
+  return React.createElement('div', { className: 'knob-wrapper', 'data-band': band },
+    React.createElement('div', {
+      className: 'knob',
+      ref: knobRef,
+      onPointerDown: handlePointerDown,
+      style: { touchAction: 'none' }
+    },
+      React.createElement('div', { className: 'knob-ticks' }),
+      React.createElement('div', {
+        className: 'knob-indicator',
+        style: { transform: 'translateX(-50%) rotate(' + angle + 'deg)' }
+      }),
+      React.createElement('div', { className: 'knob-center-dot' })
+    ),
+    React.createElement('label', { className: 'knob-label' }, label),
+    React.createElement('div', { className: 'knob-readout' },
+      (value >= 0 ? '+' : '') + value + suffix
+    )
+  );
+}
+
+function VUMeter(props) {
+  var analyserRef = props.analyserRef;
+  var rafRef = useRef(null);
+
+  useEffect(function() {
+    var draw = function() {
+      var analyser = analyserRef.current;
+      if (!analyser) { rafRef.current = requestAnimationFrame(draw); return; }
+
+      var data = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteTimeDomainData(data);
+
+      var half = Math.floor(data.length / 2);
+      var sumL = 0, sumR = 0;
+      for (var i = 0; i < half; i++) sumL += Math.abs(data[i] - 128) / 128;
+      for (var i = half; i < data.length; i++) sumR += Math.abs(data[i] - 128) / 128;
+
+      var smoothing = 0.3;
+      var levelL = Math.min(8, Math.floor((sumL / half / smoothing) * 8));
+      var levelR = Math.min(8, Math.floor((sumR / half / smoothing) * 8));
+
+      updateVUSegs('vuMeterL', levelL);
+      updateVUSegs('vuMeterR', levelR);
+      rafRef.current = requestAnimationFrame(draw);
+    };
+    rafRef.current = requestAnimationFrame(draw);
+    return function() { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [analyserRef]);
+
+  function updateVUSegs(id, level) {
+    var container = document.getElementById(id);
+    if (!container) return;
+    for (var i = 0; i < container.children.length; i++) {
+      var active = i < level;
+      container.children[i].classList.toggle('vu-active', active);
+      container.children[i].classList.toggle('vu-peak', active && i >= 6);
+    }
+  }
+
+  var segs = [];
+  for (var i = 0; i < 8; i++) {
+    segs.push(React.createElement('div', { key: i, className: 'vu-segment', 'data-level': i + 1 }));
+  }
+
+  return React.createElement('div', { className: 'panel vu-panel' },
+    React.createElement('div', { className: 'panel-title' }, 'LEVEL METER'),
+    React.createElement('div', { className: 'vu-meter-container' },
+      React.createElement('div', { className: 'vu-label' }, 'L'),
+      React.createElement('div', { className: 'vu-meter', id: 'vuMeterL' }, segs),
+      React.createElement('div', { className: 'vu-label' }, 'R'),
+      React.createElement('div', { className: 'vu-meter', id: 'vuMeterR' }, segs)
+    )
+  );
+}
+
+function Header(props) {
+  return React.createElement('header', { className: 'app-header' },
+    React.createElement('div', { className: 'header-left' },
+      React.createElement('span', { className: 'logo' }, '\u23EA AUDIO STATION'),
+      React.createElement('span', {
+        className: 'status-badge status-' + props.status.toLowerCase()
+      }, props.status)
+    ),
+    React.createElement('div', { className: 'header-right' },
+      React.createElement('div', { className: 'search-box' },
+        React.createElement('span', { className: 'search-icon' }, '\u2315'),
+        React.createElement('input', {
+          type: 'text',
+          placeholder: 'SEARCH TRACKS...',
+          value: props.searchQuery,
+          onChange: function(e) { return props.onSearchChange(e.target.value); }
+        })
+      ),
+      React.createElement('button', {
+        className: 'btn btn-header',
+        onClick: props.onLoadFolder,
+        disabled: props.loading
+      }, props.loading
+        ? 'LOADING ' + props.loadProgress.current + '/' + props.loadProgress.total
+        : '+ LOAD FOLDER'
+      ),
+      React.createElement('button', {
+        className: 'btn btn-icon' + (props.lyricsVisible ? ' active' : ''),
+        onClick: props.onToggleLyrics,
+        title: 'TOGGLE LYRICS'
+      }, '\u266C')
+    )
+  );
+}
+
+function Sidebar(props) {
+  return React.createElement('aside', { className: 'sidebar' },
+    React.createElement('div', { className: 'panel sidebar-panel' },
+      React.createElement('div', { className: 'panel-title' }, 'YOUR LIBRARY'),
+      React.createElement('div', { className: 'library-info' },
+        React.createElement('div', { className: 'folder-indicator' },
+          React.createElement('span', { className: 'folder-icon' }, '\uD83D\uDCC1'),
+          React.createElement('span', { className: 'folder-name' }, props.folderName || '\u2014 NO FOLDER \u2014')
+        ),
+        React.createElement('div', { className: 'track-count' }, props.trackCount)
+      )
+    ),
+    React.createElement('div', { className: 'panel eq-panel' },
+      React.createElement('div', { className: 'panel-title' }, 'EQUALIZER'),
+      React.createElement('div', { className: 'knobs-container' },
+        React.createElement(RotaryKnob, {
+          band: 'bass', label: 'BASS',
+          value: props.eq.bass,
+          onChange: function(v) { return props.onEQChange('bass', v); }
+        }),
+        React.createElement(RotaryKnob, {
+          band: 'mid', label: 'MID',
+          value: props.eq.mid,
+          onChange: function(v) { return props.onEQChange('mid', v); }
+        }),
+        React.createElement(RotaryKnob, {
+          band: 'treble', label: 'TREBLE',
+          value: props.eq.treble,
+          onChange: function(v) { return props.onEQChange('treble', v); }
+        })
+      )
+    ),
+    React.createElement('div', { className: 'panel spatial-panel' },
+      React.createElement('div', { className: 'panel-title' }, 'SPATIAL FIELD'),
+      React.createElement('div', { className: 'knobs-container' },
+        React.createElement(RotaryKnob, {
+          band: 'spatial', label: 'WIDTH',
+          value: props.spatial,
+          min: 0, max: 100,
+          suffix: '%',
+          onChange: props.onSpatialChange
+        })
+      ),
+      React.createElement('div', { className: 'spatial-info' },
+        'WIDENING + AMBIENCE'
+      )
+    ),
+    React.createElement(VUMeter, { analyserRef: props.analyserRef })
+  );
+}
+
+function SongList(props) {
+  var songs = props.songs;
+  var currentIndex = props.currentIndex;
+  var onPlaySong = props.onPlaySong;
+
+  if (!songs || songs.length === 0) {
+    return React.createElement('main', { className: 'main-content' },
+      React.createElement('div', { className: 'panel song-list-panel' },
+        React.createElement('div', { className: 'panel-title' }, 'TRACK LISTING'),
+        React.createElement('div', { className: 'song-list' },
+          React.createElement('div', { className: 'song-list-empty' },
+            React.createElement('div', { className: 'empty-icon' }, '\u2328'),
+            React.createElement('div', { className: 'empty-text' }, 'NO TRACKS LOADED'),
+            React.createElement('div', { className: 'empty-sub' }, 'LOAD A FOLDER TO BEGIN')
+          )
+        )
+      )
+    );
+  }
+
+  return React.createElement('main', { className: 'main-content' },
+    React.createElement('div', { className: 'panel song-list-panel' },
+      React.createElement('div', { className: 'panel-title' }, 'TRACK LISTING'),
+      React.createElement('div', { className: 'song-list' },
+        songs.map(function(song) {
+          var realIndex = song._realIndex != null ? song._realIndex : song._origIndex;
+          if (realIndex == null) realIndex = 0;
+          var isActive = realIndex === currentIndex;
+          return React.createElement('div', {
+            key: song.id,
+            className: 'song-row' + (isActive ? ' song-row-active' : ''),
+            onClick: function() { onPlaySong(realIndex); }
+          },
+            React.createElement('div', { className: 'song-row-album-art' },
+              song.albumArtUrl
+                ? React.createElement('img', { src: song.albumArtUrl, alt: '', className: 'song-album-thumb' })
+                : React.createElement('div', { className: 'song-album-thumb placeholder-thumb' }, '\u266A')
+            ),
+            React.createElement('div', { className: 'song-row-track' }, window.formatTrackNumber(song.trackNo)),
+            React.createElement('div', { className: 'song-row-title' }, window.escapeHtml(song.title)),
+            React.createElement('div', { className: 'song-row-artist' }, window.escapeHtml(song.artist)),
+            React.createElement('div', { className: 'song-row-album' }, window.escapeHtml(song.album)),
+            React.createElement('div', { className: 'song-row-duration' }, window.formatTime(song.duration))
+          );
+        })
+      )
+    )
+  );
+}
+
+function LyricsPanel(props) {
+  var lyrics = props.lyrics;
+  var currentTime = props.currentTime;
+  var visible = props.visible;
+  var scrollRef = useRef(null);
+
+  var currentLine = -1;
+  if (lyrics && lyrics.synced && lyrics.synced.length > 0) {
+    for (var i = 0; i < lyrics.synced.length; i++) {
+      if (lyrics.synced[i].time <= currentTime) currentLine = i;
+      else break;
+    }
+  }
+
+  useEffect(function() {
+    if (scrollRef.current && currentLine >= 0) {
+      var el = scrollRef.current.querySelector('.lyrics-line-current');
+      if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }, [currentLine]);
+
+  return React.createElement('div', { className: 'lyrics-panel' + (visible ? ' open' : '') },
+    React.createElement('div', { className: 'lyrics-panel-inner' },
+      React.createElement('div', { className: 'lyrics-header' }, 'SYNCED LYRICS'),
+      React.createElement('div', { className: 'lyrics-content', ref: scrollRef },
+        (!lyrics || (!lyrics.synced.length && !lyrics.plain))
+          ? React.createElement('div', { className: 'lyrics-placeholder' },
+              React.createElement('div', null, '\u266B'),
+              React.createElement('div', null, 'NO LYRICS FOUND'),
+              React.createElement('div', null, 'PLAY A SONG TO BEGIN')
+            )
+          : lyrics.synced.length > 0
+            ? lyrics.synced.map(function(line, idx) {
+                var cls = 'lyrics-line';
+                if (idx < currentLine) cls += ' lyrics-line-past';
+                else if (idx === currentLine) cls += ' lyrics-line-current';
+                else cls += ' lyrics-line-future';
+                return React.createElement('div', { key: idx, className: cls }, line.text);
+              })
+            : React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: '0.65rem', whiteSpace: 'pre-wrap', lineHeight: 1.6 } },
+                lyrics.plain
+              )
+      )
+    )
+  );
+}
+
+function PlayerBar(props) {
+  var currentSong = props.currentSong;
+  var playerState = props.playerState;
+  var timeInfo = props.timeInfo;
+  var onTogglePlay = props.onTogglePlay;
+  var onPrev = props.onPrev;
+  var onNext = props.onNext;
+  var onSeek = props.onSeek;
+  var onVolumeChange = props.onVolumeChange;
+  var onToggleShuffle = props.onToggleShuffle;
+  var onCycleRepeat = props.onCycleRepeat;
+  var onToggleMute = props.onToggleMute;
+
+  var [isDragging, setIsDragging] = useState(false);
+  var [dragValue, setDragValue] = useState(0);
+
+  var handleSeekChange = useCallback(function(e) {
+    if (isDragging) setDragValue(parseFloat(e.target.value));
+  }, [isDragging]);
+
+  var handleSeekDown = useCallback(function() {
+    setIsDragging(true);
+    setDragValue(timeInfo.current);
+  }, [timeInfo.current]);
+
+  var handleSeekUp = useCallback(function(e) {
+    onSeek(parseFloat(e.target.value));
+    setIsDragging(false);
+  }, [onSeek]);
+
+  var displayCurrent = isDragging ? dragValue : timeInfo.current;
+  var dur = timeInfo.duration || 1;
+  var seekPct = Math.min((displayCurrent / dur) * 100, 100);
+  var volPct = playerState.volume * 100;
+
+  var volIcon = playerState.volume === 0 ? '\uD83D\uDD07'
+    : playerState.volume < 0.3 ? '\uD83D\uDD08'
+    : playerState.volume < 0.7 ? '\uD83D\uDD09'
+    : '\uD83D\uDD0A';
+
+  return React.createElement('footer', { className: 'player-bar' },
+    React.createElement('div', { className: 'player-track-info' },
+      React.createElement('div', { className: 'player-album-art' },
+        currentSong && currentSong.albumArtUrl
+          ? React.createElement('img', { src: currentSong.albumArtUrl, alt: '', className: 'player-album-img' })
+          : React.createElement('div', { className: 'album-art-placeholder' }, '\u266A')
+      ),
+      React.createElement('div', { className: 'player-track-details' },
+        React.createElement('div', { className: 'player-title' }, (currentSong && currentSong.title) || 'NO TRACK'),
+        React.createElement('div', { className: 'player-artist' }, (currentSong && currentSong.artist) || '\u2014')
+      )
+    ),
+
+    React.createElement('div', { className: 'player-controls' },
+      React.createElement('div', { className: 'controls-row' },
+        React.createElement('button', {
+          className: 'btn btn-control' + (playerState.shuffle ? ' active' : ''),
+          onClick: onToggleShuffle,
+          title: 'SHUFFLE'
+        }, '\u21C4'),
+        React.createElement('button', { className: 'btn btn-control', onClick: onPrev, title: 'PREVIOUS' }, '\u23EE'),
+        React.createElement('button', { className: 'btn btn-control btn-play', onClick: onTogglePlay, title: 'PLAY/PAUSE' },
+          playerState.isPlaying ? '\u23F8' : '\u25B6'
+        ),
+        React.createElement('button', { className: 'btn btn-control', onClick: onNext, title: 'NEXT' }, '\u23ED'),
+        React.createElement('button', {
+          className: 'btn btn-control' + (playerState.repeatMode !== 'off' ? ' active' : ''),
+          onClick: onCycleRepeat,
+          title: 'REPEAT'
+        }, playerState.repeatMode === 'one' ? '\u21BB' : '\u21BA')
+      ),
+      React.createElement('div', { className: 'seek-row' },
+        React.createElement('span', { className: 'time-display' }, window.formatTime(displayCurrent)),
+        React.createElement('div', { className: 'seek-bar-container' },
+          React.createElement('div', { className: 'seek-bar-track' },
+            React.createElement('div', { className: 'seek-bar-fill', style: { width: seekPct + '%' } }),
+            React.createElement('div', { className: 'seek-bar-thumb', style: { left: seekPct + '%' } })
+          ),
+          React.createElement('input', {
+            type: 'range', className: 'seek-bar-input',
+            min: 0, max: timeInfo.duration || 100, step: 0.1,
+            value: displayCurrent,
+            onChange: handleSeekChange,
+            onMouseDown: handleSeekDown,
+            onMouseUp: handleSeekUp,
+            onTouchStart: handleSeekDown,
+            onTouchEnd: handleSeekUp
+          })
+        ),
+        React.createElement('span', { className: 'time-display' }, window.formatTime(timeInfo.duration))
+      )
+    ),
+
+    React.createElement('div', { className: 'player-volume' },
+      React.createElement('button', { className: 'btn btn-icon', onClick: onToggleMute, title: 'MUTE' }, volIcon),
+      React.createElement('div', { className: 'volume-slider-container' },
+        React.createElement('div', { className: 'volume-slider-track' },
+          React.createElement('div', { className: 'volume-slider-fill', style: { width: volPct + '%' } }),
+          React.createElement('div', { className: 'volume-slider-thumb', style: { left: volPct + '%' } })
+        ),
+        React.createElement('input', {
+          type: 'range', className: 'volume-slider-input',
+          min: 0, max: 1, step: 0.01,
+          value: playerState.volume,
+          onChange: function(e) { onVolumeChange(parseFloat(e.target.value)); }
+        })
+      )
+    )
+  );
+}
+
+/* ============================================================
+   APP
+   ============================================================ */
+
+function App() {
+  var db = useSongDatabase();
+  var engine = useAudioEngine(db.songs);
+
+  var [searchQuery, setSearchQuery] = useState('');
+  var [lyricsVisible, setLyricsVisible] = useState(false);
+  var [lyrics, setLyrics] = useState(null);
+
+  var handleSearch = useCallback(function(query) {
+    setSearchQuery(query);
+    db.searchSongs(query);
+  }, [db.searchSongs]);
+
+  var handlePlaySong = useCallback(function(index) {
+    engine.playSong(index);
+  }, [engine.playSong]);
+
+  var status = !db.isLoaded ? 'STANDBY'
+    : engine.playerState.isPlaying ? 'PLAYING'
+    : 'PAUSED';
+
+  /* Attach real index for filtered songs */
+  var displaySongs = useMemo(function() {
+    if (db.filteredSongs.length === db.songs.length) return db.songs;
+    return db.filteredSongs.map(function(song) {
+      var realIdx = db.songsRef.current.indexOf(song);
+      return Object.assign({}, song, { _realIndex: realIdx });
+    });
+  }, [db.filteredSongs, db.songs, db.songsRef]);
+
+  /* Fetch lyrics when song changes */
+  useEffect(function() {
+    if (!engine.currentSong) { setLyrics(null); return; }
+    var song = engine.currentSong;
+    var cancelled = false;
+
+    window.fetchLyrics(song.title, song.artist, song.album, song.duration).then(function(result) {
+      if (!cancelled) setLyrics(result);
+    });
+
+    return function() { cancelled = true; };
+  }, [engine.currentSong]);
+
+  /* Keyboard shortcuts */
+  useEffect(function() {
+    var onKey = function(e) {
+      if (e.target.tagName === 'INPUT') return;
+      if (e.code === 'Space') { e.preventDefault(); engine.togglePlay(); }
+      if (e.code === 'ArrowRight') engine.nextTrack();
+      if (e.code === 'ArrowLeft') engine.prevTrack();
+    };
+    document.addEventListener('keydown', onKey);
+    return function() { document.removeEventListener('keydown', onKey); };
+  }, [engine.togglePlay, engine.nextTrack, engine.prevTrack]);
+
+  var trackCountText = db.isLoaded ? db.songs.length + ' TRACKS' : '0 TRACKS';
+
+  return React.createElement('div', { className: 'app-container' },
+    React.createElement(Header, {
+      status: status,
+      searchQuery: searchQuery,
+      onSearchChange: handleSearch,
+      onLoadFolder: db.loadFolder,
+      loading: db.loading,
+      loadProgress: db.loadProgress,
+      lyricsVisible: lyricsVisible,
+      onToggleLyrics: function() { setLyricsVisible(function(v) { return !v; }); }
+    }),
+
+    React.createElement('div', { className: 'app-body' },
+      React.createElement(Sidebar, {
+        folderName: db.folderName,
+        trackCount: trackCountText,
+        eq: engine.playerState.eq,
+        onEQChange: engine.setEQ,
+        spatial: engine.playerState.spatial,
+        onSpatialChange: engine.setSpatial,
+        analyserRef: engine.analyserRef
+      }),
+
+      React.createElement('div', { className: 'main-area' },
+        React.createElement(SongList, {
+          songs: displaySongs,
+          currentIndex: engine.playerState.currentIndex,
+          onPlaySong: handlePlaySong
+        }),
+        React.createElement(LyricsPanel, {
+          lyrics: lyrics,
+          currentTime: engine.timeInfo.current,
+          visible: lyricsVisible
+        })
+      )
+    ),
+
+    React.createElement(PlayerBar, {
+      currentSong: engine.currentSong,
+      playerState: engine.playerState,
+      timeInfo: engine.timeInfo,
+      onTogglePlay: engine.togglePlay,
+      onPrev: engine.prevTrack,
+      onNext: engine.nextTrack,
+      onSeek: engine.seek,
+      onVolumeChange: engine.setVolume,
+      onToggleShuffle: engine.toggleShuffle,
+      onCycleRepeat: engine.cycleRepeat,
+      onToggleMute: engine.toggleMute
+    }),
+
+    React.createElement('audio', { ref: engine.audioRef, preload: 'auto', style: { display: 'none' } })
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+
+</body>
+</html>
