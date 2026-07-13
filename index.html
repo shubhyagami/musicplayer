@@ -3,15 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AUDIO STATION · RETRO MUSIC PLAYER</title>
+<title>Aud!obuck</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-<div class="crt-overlay"></div>
-<div class="vignette"></div>
 <div id="root"></div>
 
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -27,7 +25,7 @@
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
 /* ============================================================
-   HOOKS
+   HOOKS  (unchanged)
    ============================================================ */
 
 function useSongDatabase() {
@@ -157,7 +155,6 @@ function useAudioEngine(songs) {
     var analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
 
-    /* EQ FILTERS */
     var bass = ctx.createBiquadFilter();
     bass.type = 'lowshelf'; bass.frequency.value = 200;
     var mid = ctx.createBiquadFilter();
@@ -169,23 +166,19 @@ function useAudioEngine(songs) {
     mid.gain.value = stateRef.current.eq.mid;
     treble.gain.value = stateRef.current.eq.treble;
 
-    /* SPATIAL STAGE: Mid-Side widening + Convolution reverb */
     var splitter = ctx.createChannelSplitter(2);
     var merger = ctx.createChannelMerger(2);
 
-    // Mid bus
     var midL = ctx.createGain(); midL.gain.value = 0.5;
     var midR = ctx.createGain(); midR.gain.value = 0.5;
     var midSum = ctx.createGain(); midSum.gain.value = 1.0;
 
-    // Side bus
     var sideL = ctx.createGain(); sideL.gain.value = 0.5;
     var sideRNeg = ctx.createGain(); sideRNeg.gain.value = -0.5;
     var sideSum = ctx.createGain(); sideSum.gain.value = 1.0;
     var widthGain = ctx.createGain();
     widthGain.gain.value = 1.0 + stateRef.current.spatial * 0.015;
 
-    // Output mix
     var mixL_M = ctx.createGain(); mixL_M.gain.value = 1.0;
     var mixL_S = ctx.createGain(); mixL_S.gain.value = 1.0;
     var mixR_M = ctx.createGain(); mixR_M.gain.value = 1.0;
@@ -212,7 +205,6 @@ function useAudioEngine(songs) {
     mixR_M.connect(merger, 0, 1);
     mixR_S_neg.connect(merger, 0, 1);
 
-    /* Convolution reverb */
     var convolver = ctx.createConvolver();
     convolver.buffer = createImpulseResponse(ctx, 1.5, 2.0);
     var reverbGain = ctx.createGain();
@@ -221,12 +213,10 @@ function useAudioEngine(songs) {
     var dryGain = ctx.createGain();
     dryGain.gain.value = 1.0;
 
-    /* Connect signal chain: source -> EQ -> spatial -> dry/wet -> master gain -> destination */
     src.connect(bass);
     bass.connect(mid);
     mid.connect(treble);
     treble.connect(splitter);
-    // splitter -> M/S processing -> merger (widened signal)
 
     merger.connect(dryGain);
     merger.connect(convolver);
@@ -437,6 +427,35 @@ function createImpulseResponse(ctx, duration, decay) {
 }
 
 /* ============================================================
+   SVG ICONS (inline helpers)
+   ============================================================ */
+
+function SvgChevronLeft() { return React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }, React.createElement('polyline', { points: '15 18 9 12 15 6' })); }
+function SvgChevronRight() { return React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }, React.createElement('polyline', { points: '9 18 15 12 9 6' })); }
+function SvgLock() { return React.createElement('svg', { width: 13, height: 13, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, React.createElement('rect', { x: 5, y: 11, width: 14, height: 9, rx: 2 }), React.createElement('path', { d: 'M8 11V7a4 4 0 0 1 8 0v4' })); }
+function SvgRefresh() { return React.createElement('svg', { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' }, React.createElement('path', { d: 'M23 4v6h-6' }), React.createElement('path', { d: 'M1 20v-6h6' }), React.createElement('path', { d: 'M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15' })); }
+function SvgSun() { return React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, React.createElement('circle', { cx: 12, cy: 12, r: 5 }), React.createElement('path', { d: 'M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4' })); }
+function SvgHome() { return React.createElement('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }, React.createElement('path', { d: 'M3 12l9-9 9 9' }), React.createElement('path', { d: 'M5 10v10h14V10' })); }
+function SvgBell() { return React.createElement('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }, React.createElement('path', { d: 'M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9' }), React.createElement('path', { d: 'M13.7 21a2 2 0 0 1-3.4 0' })); }
+function SvgEQ() { return React.createElement('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' }, React.createElement('line', { x1: 4, y1: 21, x2: 4, y2: 14 }), React.createElement('line', { x1: 4, y1: 10, x2: 4, y2: 3 }), React.createElement('line', { x1: 12, y1: 21, x2: 12, y2: 12 }), React.createElement('line', { x1: 12, y1: 8, x2: 12, y2: 3 }), React.createElement('line', { x1: 20, y1: 21, x2: 20, y2: 16 }), React.createElement('line', { x1: 20, y1: 12, x2: 20, y2: 3 }), React.createElement('line', { x1: 1, y1: 14, x2: 7, y2: 14 }), React.createElement('line', { x1: 9, y1: 8, x2: 15, y2: 8 }), React.createElement('line', { x1: 17, y1: 16, x2: 23, y2: 16 })); }
+function SvgSpatial() { return React.createElement('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, React.createElement('circle', { cx: 12, cy: 12, r: 10 }), React.createElement('circle', { cx: 12, cy: 12, r: 6 }), React.createElement('circle', { cx: 12, cy: 12, r: 2 })); }
+function SvgSettings() { return React.createElement('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }, React.createElement('circle', { cx: 12, cy: 12, r: 3 }), React.createElement('path', { d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z' })); }
+function SvgHeadphones() { return React.createElement('svg', { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, React.createElement('path', { d: 'M3 18v-6a9 9 0 0 1 18 0v6' }), React.createElement('path', { d: 'M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z' })); }
+function SvgClock() { return React.createElement('svg', { width: 13, height: 13, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, React.createElement('circle', { cx: 12, cy: 12, r: 10 }), React.createElement('polyline', { points: '12 6 12 12 16 14' })); }
+function SvgHeart() { return React.createElement('svg', { width: 17, height: 17, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, React.createElement('path', { d: 'M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z' })); }
+function SvgHeartFilled() { return React.createElement('svg', { width: 17, height: 17, viewBox: '0 0 24 24', fill: 'currentColor', stroke: 'currentColor', strokeWidth: 2 }, React.createElement('path', { d: 'M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z' })); }
+function SvgDots() { return React.createElement('svg', { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'currentColor' }, React.createElement('circle', { cx: 12, cy: 5, r: 1.8 }), React.createElement('circle', { cx: 12, cy: 12, r: 1.8 }), React.createElement('circle', { cx: 12, cy: 19, r: 1.8 })); }
+function SvgPrev() { return React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'currentColor' }, React.createElement('polygon', { points: '19 20 9 12 19 4' }), React.createElement('rect', { x: 5, y: 4, width: 2, height: 16 })); }
+function SvgNext() { return React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'currentColor' }, React.createElement('polygon', { points: '5 4 15 12 5 20' }), React.createElement('rect', { x: 17, y: 4, width: 2, height: 16 })); }
+function SvgPause() { return React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'currentColor' }, React.createElement('rect', { x: 5, y: 4, width: 5, height: 16, rx: 1 }), React.createElement('rect', { x: 14, y: 4, width: 5, height: 16, rx: 1 })); }
+function SvgPlay() { return React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'currentColor' }, React.createElement('polygon', { points: '6 4 20 12 6 20' })); }
+function SvgComment() { return React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, React.createElement('path', { d: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z' })); }
+function SvgLyrics() { return React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, React.createElement('path', { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }), React.createElement('polyline', { points: '14 2 14 8 20 8' }), React.createElement('line', { x1: 8, y1: 13, x2: 16, y2: 13 }), React.createElement('line', { x1: 8, y1: 17, x2: 16, y2: 17 })); }
+function SvgVolume() { return React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, React.createElement('polygon', { points: '11 5 6 9 2 9 2 15 6 15 11 19 11 5' }), React.createElement('path', { d: 'M15.5 8.5a5 5 0 0 1 0 7M18.5 6a9 9 0 0 1 0 12' })); }
+function SvgVolumeX() { return React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, React.createElement('polygon', { points: '11 5 6 9 2 9 2 15 6 15 11 19 11 5' }), React.createElement('line', { x1: 22, y1: 9, x2: 16, y2: 15 }), React.createElement('line', { x1: 16, y1: 9, x2: 22, y2: 15 })); }
+function SvgMusic() { return React.createElement('svg', { width: 42, height: 42, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, React.createElement('path', { d: 'M3 18v-6a9 9 0 0 1 18 0v6' }), React.createElement('path', { d: 'M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z' })); }
+
+/* ============================================================
    COMPONENTS
    ============================================================ */
 
@@ -499,17 +518,11 @@ function RotaryKnob(props) {
       onPointerDown: handlePointerDown,
       style: { touchAction: 'none' }
     },
-      React.createElement('div', { className: 'knob-ticks' }),
-      React.createElement('div', {
-        className: 'knob-indicator',
-        style: { transform: 'translateX(-50%) rotate(' + angle + 'deg)' }
-      }),
-      React.createElement('div', { className: 'knob-center-dot' })
+      React.createElement('div', { className: 'knob-indicator', style: { transform: 'translateX(-50%) rotate(' + angle + 'deg)' } }),
+      React.createElement('div', { className: 'knob-dot' })
     ),
-    React.createElement('label', { className: 'knob-label' }, label),
-    React.createElement('div', { className: 'knob-readout' },
-      (value >= 0 ? '+' : '') + value + suffix
-    )
+    React.createElement('div', { className: 'knob-label' }, label),
+    React.createElement('div', { className: 'knob-readout' }, (value >= 0 ? '+' : '') + value + suffix)
   );
 }
 
@@ -521,21 +534,17 @@ function VUMeter(props) {
     var draw = function() {
       var analyser = analyserRef.current;
       if (!analyser) { rafRef.current = requestAnimationFrame(draw); return; }
-
       var data = new Uint8Array(analyser.frequencyBinCount);
       analyser.getByteTimeDomainData(data);
-
       var half = Math.floor(data.length / 2);
       var sumL = 0, sumR = 0;
       for (var i = 0; i < half; i++) sumL += Math.abs(data[i] - 128) / 128;
       for (var i = half; i < data.length; i++) sumR += Math.abs(data[i] - 128) / 128;
-
       var smoothing = 0.3;
       var levelL = Math.min(8, Math.floor((sumL / half / smoothing) * 8));
       var levelR = Math.min(8, Math.floor((sumR / half / smoothing) * 8));
-
-      updateVUSegs('vuMeterL', levelL);
-      updateVUSegs('vuMeterR', levelR);
+      updateVUSegs('vuL', levelL);
+      updateVUSegs('vuR', levelR);
       rafRef.current = requestAnimationFrame(draw);
     };
     rafRef.current = requestAnimationFrame(draw);
@@ -546,111 +555,114 @@ function VUMeter(props) {
     var container = document.getElementById(id);
     if (!container) return;
     for (var i = 0; i < container.children.length; i++) {
+      var seg = container.children[i];
       var active = i < level;
-      container.children[i].classList.toggle('vu-active', active);
-      container.children[i].classList.toggle('vu-peak', active && i >= 6);
+      seg.className = 'vu-seg' + (active ? ' vu-active vu-lvl-' + (i + 1) : '');
     }
   }
 
   var segs = [];
-  for (var i = 0; i < 8; i++) {
-    segs.push(React.createElement('div', { key: i, className: 'vu-segment', 'data-level': i + 1 }));
-  }
+  for (var i = 0; i < 8; i++) { segs.push(React.createElement('div', { key: i, className: 'vu-seg' })); }
 
-  return React.createElement('div', { className: 'panel vu-panel' },
-    React.createElement('div', { className: 'panel-title' }, 'LEVEL METER'),
-    React.createElement('div', { className: 'vu-meter-container' },
+  return React.createElement('div', { className: 'vu-panel' },
+    React.createElement('div', { className: 'vu-container' },
       React.createElement('div', { className: 'vu-label' }, 'L'),
-      React.createElement('div', { className: 'vu-meter', id: 'vuMeterL' }, segs),
+      React.createElement('div', { className: 'vu-meter', id: 'vuL' }, segs),
       React.createElement('div', { className: 'vu-label' }, 'R'),
-      React.createElement('div', { className: 'vu-meter', id: 'vuMeterR' }, segs)
+      React.createElement('div', { className: 'vu-meter', id: 'vuR' }, segs)
     )
   );
 }
 
-function Header(props) {
-  return React.createElement('header', { className: 'app-header' },
-    React.createElement('div', { className: 'header-left' },
-      React.createElement('span', { className: 'logo' }, '\u23EA AUDIO STATION'),
-      React.createElement('span', {
-        className: 'status-badge status-' + props.status.toLowerCase()
-      }, props.status)
+function BrowserBar(props) {
+  return React.createElement('div', { className: 'browser-bar' },
+    React.createElement('button', { className: 'icon-btn', 'aria-label': 'Back', onClick: props.onBack }, React.createElement(SvgChevronLeft)),
+    React.createElement('button', { className: 'icon-btn', 'aria-label': 'Forward' }, React.createElement(SvgChevronRight)),
+    React.createElement('div', { className: 'search-pill' },
+      React.createElement(SvgLock),
+      React.createElement('input', {
+        type: 'text',
+        placeholder: 'Aud!obuck',
+        value: props.searchQuery,
+        onChange: function(e) { props.onSearchChange(e.target.value); }
+      }),
+      React.createElement(SvgRefresh)
     ),
-    React.createElement('div', { className: 'header-right' },
-      React.createElement('div', { className: 'search-box' },
-        React.createElement('span', { className: 'search-icon' }, '\u2315'),
-        React.createElement('input', {
-          type: 'text',
-          placeholder: 'SEARCH TRACKS...',
-          value: props.searchQuery,
-          onChange: function(e) { return props.onSearchChange(e.target.value); }
-        })
-      ),
-      React.createElement('button', {
-        className: 'btn btn-header',
-        onClick: props.onLoadFolder,
-        disabled: props.loading
-      }, props.loading
-        ? 'LOADING ' + props.loadProgress.current + '/' + props.loadProgress.total
-        : '+ LOAD FOLDER'
-      ),
-      React.createElement('button', {
-        className: 'btn btn-icon' + (props.lyricsVisible ? ' active' : ''),
-        onClick: props.onToggleLyrics,
-        title: 'TOGGLE LYRICS'
-      }, '\u266C')
-    )
+    React.createElement('button', { className: 'icon-btn', 'aria-label': 'Reload', onClick: function() { props.onSearchChange(''); } }, React.createElement(SvgSun))
   );
 }
 
 function Sidebar(props) {
-  return React.createElement('aside', { className: 'sidebar' },
-    React.createElement('div', { className: 'panel sidebar-panel' },
-      React.createElement('div', { className: 'panel-title' }, 'YOUR LIBRARY'),
-      React.createElement('div', { className: 'library-info' },
-        React.createElement('div', { className: 'folder-indicator' },
-          React.createElement('span', { className: 'folder-icon' }, '\uD83D\uDCC1'),
-          React.createElement('span', { className: 'folder-name' }, props.folderName || '\u2014 NO FOLDER \u2014')
-        ),
-        React.createElement('div', { className: 'track-count' }, props.trackCount)
-      )
-    ),
-    React.createElement('div', { className: 'panel eq-panel' },
-      React.createElement('div', { className: 'panel-title' }, 'EQUALIZER'),
-      React.createElement('div', { className: 'knobs-container' },
-        React.createElement(RotaryKnob, {
-          band: 'bass', label: 'BASS',
-          value: props.eq.bass,
-          onChange: function(v) { return props.onEQChange('bass', v); }
-        }),
-        React.createElement(RotaryKnob, {
-          band: 'mid', label: 'MID',
-          value: props.eq.mid,
-          onChange: function(v) { return props.onEQChange('mid', v); }
-        }),
-        React.createElement(RotaryKnob, {
-          band: 'treble', label: 'TREBLE',
-          value: props.eq.treble,
-          onChange: function(v) { return props.onEQChange('treble', v); }
-        })
-      )
-    ),
-    React.createElement('div', { className: 'panel spatial-panel' },
-      React.createElement('div', { className: 'panel-title' }, 'SPATIAL FIELD'),
-      React.createElement('div', { className: 'knobs-container' },
-        React.createElement(RotaryKnob, {
-          band: 'spatial', label: 'WIDTH',
-          value: props.spatial,
-          min: 0, max: 100,
-          suffix: '%',
-          onChange: props.onSpatialChange
-        })
+  var tabs = [
+    { id: 'overview', icon: React.createElement(SvgHome), label: 'Home' },
+    { id: 'related', icon: React.createElement(SvgBell), label: 'Notifications' },
+    { id: 'related', icon: React.createElement(SvgEQ), label: 'Equalizer' },
+    { id: 'related', icon: React.createElement(SvgSpatial), label: 'Spatial' },
+    { id: 'settings', icon: React.createElement(SvgSettings), label: 'Settings' }
+  ];
+
+  return React.createElement('nav', { className: 'sidebar' },
+    tabs.map(function(t) {
+      return React.createElement('button', {
+        key: t.id + '-' + t.label,
+        className: 'icon-btn' + (props.activeTab === t.id ? ' active' : ''),
+        'aria-label': t.label,
+        onClick: function() { props.onTabChange(t.id); }
+      }, t.icon);
+    }),
+    React.createElement('button', {
+      className: 'sidebar-load-btn',
+      onClick: props.onLoadFolder,
+      disabled: props.loading
+    }, props.loading ? 'LOADING...' : '+ FOLDER')
+  );
+}
+
+function ArtistHero(props) {
+  var songs = props.songs;
+  var currentSong = props.currentSong;
+  var isPlaying = props.isPlaying;
+  var onPlayAll = props.onPlayAll;
+  var folderName = props.folderName;
+
+  var name = folderName || 'YOUR LIBRARY';
+  var count = songs.length;
+  var displayName = currentSong ? currentSong.artist.toUpperCase() : 'LIBRARY';
+  var heroTitle = currentSong ? currentSong.artist : name;
+
+  var thumbSrc = null;
+  if (currentSong && currentSong.albumArtUrl) thumbSrc = currentSong.albumArtUrl;
+  else if (songs.length > 0 && songs[0].albumArtUrl) thumbSrc = songs[0].albumArtUrl;
+
+  return React.createElement('section', { className: 'artist-hero' },
+    React.createElement('div', { className: 'artist-info' },
+      React.createElement('span', { className: 'eyebrow' }, displayName),
+      React.createElement('h1', null, heroTitle),
+      React.createElement('div', { className: 'song-count' },
+        React.createElement(SvgHeadphones),
+        count + ' song' + (count !== 1 ? 's' : '') + ' Total'
       ),
-      React.createElement('div', { className: 'spatial-info' },
-        'WIDENING + AMBIENCE'
+      React.createElement('div', { className: 'hero-buttons' },
+        React.createElement('button', { className: 'pill-btn', onClick: props.onLoadFolder }, 'Load Folder'),
+        React.createElement('button', {
+          className: 'pill-btn primary',
+          onClick: onPlayAll,
+          disabled: songs.length === 0
+        }, isPlaying ? 'Playing' : 'Play all')
       )
     ),
-    React.createElement(VUMeter, { analyserRef: props.analyserRef })
+    React.createElement('div', { className: 'hero-visual' },
+      React.createElement('svg', { className: 'rings', width: 240, viewBox: '0 0 240 240', fill: 'none', stroke: 'white', strokeWidth: 1 },
+        React.createElement('circle', { cx: 120, cy: 120, r: 60 }),
+        React.createElement('circle', { cx: 120, cy: 120, r: 90 }),
+        React.createElement('circle', { cx: 120, cy: 120, r: 118 })
+      ),
+      React.createElement('div', { className: 'badge' },
+        thumbSrc
+          ? React.createElement('img', { src: thumbSrc, alt: '', style: { width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' } })
+          : React.createElement(SvgMusic)
+      )
+    )
   );
 }
 
@@ -658,56 +670,87 @@ function SongList(props) {
   var songs = props.songs;
   var currentIndex = props.currentIndex;
   var onPlaySong = props.onPlaySong;
+  var loved = props.loved;
+  var onLove = props.onLove;
 
   if (!songs || songs.length === 0) {
-    return React.createElement('main', { className: 'main-content' },
-      React.createElement('div', { className: 'panel song-list-panel' },
-        React.createElement('div', { className: 'panel-title' }, 'TRACK LISTING'),
-        React.createElement('div', { className: 'song-list' },
-          React.createElement('div', { className: 'song-list-empty' },
-            React.createElement('div', { className: 'empty-icon' }, '\u2328'),
-            React.createElement('div', { className: 'empty-text' }, 'NO TRACKS LOADED'),
-            React.createElement('div', { className: 'empty-sub' }, 'LOAD A FOLDER TO BEGIN')
-          )
-        )
-      )
+    return React.createElement('div', { className: 'empty-state' },
+      React.createElement(SvgMusic),
+      React.createElement('p', null, 'No tracks loaded'),
+      React.createElement('p', { className: 'sub' }, 'Load a folder or scan local music')
     );
   }
 
-  return React.createElement('main', { className: 'main-content' },
-    React.createElement('div', { className: 'panel song-list-panel' },
-      React.createElement('div', { className: 'panel-title' }, 'TRACK LISTING'),
-      React.createElement('div', { className: 'song-list' },
-        songs.map(function(song) {
-          var realIndex = song._realIndex != null ? song._realIndex : song._origIndex;
-          if (realIndex == null) realIndex = 0;
-          var isActive = realIndex === currentIndex;
-          return React.createElement('div', {
-            key: song.id,
-            className: 'song-row' + (isActive ? ' song-row-active' : ''),
-            onClick: function() { onPlaySong(realIndex); }
-          },
-            React.createElement('div', { className: 'song-row-album-art' },
-              song.albumArtUrl
-                ? React.createElement('img', { src: song.albumArtUrl, alt: '', className: 'song-album-thumb' })
-                : React.createElement('div', { className: 'song-album-thumb placeholder-thumb' }, '\u266A')
-            ),
-            React.createElement('div', { className: 'song-row-track' }, window.formatTrackNumber(song.trackNo)),
-            React.createElement('div', { className: 'song-row-title' }, window.escapeHtml(song.title)),
-            React.createElement('div', { className: 'song-row-artist' }, window.escapeHtml(song.artist)),
-            React.createElement('div', { className: 'song-row-album' }, window.escapeHtml(song.album)),
-            React.createElement('div', { className: 'song-row-duration' }, window.formatTime(song.duration))
-          );
-        })
+  var songRows = songs.map(function(song) {
+    var realIndex = song._realIndex != null ? song._realIndex : song._origIndex;
+    if (realIndex == null) realIndex = 0;
+    var isActive = realIndex === currentIndex;
+    var isLoved = loved[song.id];
+
+    var thumbEl;
+    if (song.albumArtUrl) {
+      thumbEl = React.createElement('img', { src: song.albumArtUrl, alt: '' });
+    } else {
+      var hue1 = ((song.title.length * 37) % 360);
+      var hue2 = ((song.title.length * 37 + 60) % 360);
+      thumbEl = React.createElement('div', { style: { background: 'linear-gradient(135deg, hsl(' + hue1 + ',40%,50%), hsl(' + hue2 + ',35%,35%))', width: '100%', height: '100%', display: 'grid', placeItems: 'center', color: 'rgba(255,255,255,0.85)', fontSize: 18 } }, '\u266A');
+    }
+
+    return React.createElement('div', {
+      key: song.id,
+      className: 'song-row' + (isActive ? ' song-row-active' : ''),
+      onClick: function() { onPlaySong(realIndex); },
+      onDoubleClick: function() { onLove(song.id); }
+    },
+      React.createElement('div', { className: 'song-thumb' }, thumbEl),
+      React.createElement('div', { className: 'song-title-col' },
+        React.createElement('span', { className: 'song-title' }, window.escapeHtml(song.title)),
+        React.createElement('span', { className: 'song-tag' }, window.escapeHtml(song.artist))
+      ),
+      React.createElement('div', { className: 'song-meta' },
+        React.createElement(SvgClock),
+        window.formatTime(song.duration)
+      ),
+      React.createElement('div', { className: 'song-meta' }, song.album ? window.escapeHtml(song.album) : ''),
+      React.createElement('button', {
+        className: 'heart-btn' + (isLoved ? ' active' : ''),
+        'aria-label': 'Love',
+        onClick: function(e) { e.stopPropagation(); onLove(song.id); }
+      }, isLoved ? React.createElement(SvgHeartFilled) : React.createElement(SvgHeart)),
+      React.createElement('button', { className: 'more-btn', 'aria-label': 'More' }, React.createElement(SvgDots))
+    );
+  });
+
+  return React.createElement('div', { className: 'song-list' }, songRows);
+}
+
+function RelatedArtistTab(props) {
+  var eq = props.eq;
+  var spatial = props.spatial;
+  var onEQChange = props.onEQChange;
+  var onSpatialChange = props.onSpatialChange;
+  var analyserRef = props.analyserRef;
+
+  return React.createElement('div', null,
+    React.createElement('div', { className: 'knobs-panel' },
+      React.createElement('div', { className: 'knobs-container' },
+        React.createElement(RotaryKnob, { band: 'bass', label: 'BASS', value: eq.bass, onChange: function(v) { onEQChange('bass', v); } }),
+        React.createElement(RotaryKnob, { band: 'mid', label: 'MID', value: eq.mid, onChange: function(v) { onEQChange('mid', v); } }),
+        React.createElement(RotaryKnob, { band: 'treble', label: 'TREBLE', value: eq.treble, onChange: function(v) { onEQChange('treble', v); } })
       )
-    )
+    ),
+    React.createElement('div', { className: 'knobs-panel' },
+      React.createElement('div', { className: 'knobs-container' },
+        React.createElement(RotaryKnob, { band: 'spatial', label: 'WIDTH', value: spatial, min: 0, max: 100, suffix: '%', onChange: onSpatialChange })
+      )
+    ),
+    React.createElement(VUMeter, { analyserRef: analyserRef })
   );
 }
 
-function LyricsPanel(props) {
+function LyricsTab(props) {
   var lyrics = props.lyrics;
   var currentTime = props.currentTime;
-  var visible = props.visible;
   var scrollRef = useRef(null);
 
   var currentLine = -1;
@@ -725,138 +768,93 @@ function LyricsPanel(props) {
     }
   }, [currentLine]);
 
-  return React.createElement('div', { className: 'lyrics-panel' + (visible ? ' open' : '') },
-    React.createElement('div', { className: 'lyrics-panel-inner' },
-      React.createElement('div', { className: 'lyrics-header' }, 'SYNCED LYRICS'),
-      React.createElement('div', { className: 'lyrics-content', ref: scrollRef },
-        (!lyrics || (!lyrics.synced.length && !lyrics.plain))
-          ? React.createElement('div', { className: 'lyrics-placeholder' },
-              React.createElement('div', null, '\u266B'),
-              React.createElement('div', null, 'NO LYRICS FOUND'),
-              React.createElement('div', null, 'PLAY A SONG TO BEGIN')
-            )
-          : lyrics.synced.length > 0
-            ? lyrics.synced.map(function(line, idx) {
-                var cls = 'lyrics-line';
-                if (idx < currentLine) cls += ' lyrics-line-past';
-                else if (idx === currentLine) cls += ' lyrics-line-current';
-                else cls += ' lyrics-line-future';
-                return React.createElement('div', { key: idx, className: cls }, line.text);
-              })
-            : React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: '0.65rem', whiteSpace: 'pre-wrap', lineHeight: 1.6 } },
-                lyrics.plain
-              )
-      )
-    )
-  );
+  var content;
+  if (!lyrics || (!lyrics.synced.length && !lyrics.plain)) {
+    content = React.createElement('div', { className: 'lyrics-placeholder' },
+      React.createElement('div', null, '\u266B'),
+      React.createElement('div', null, 'No lyrics found'),
+      React.createElement('div', null, 'Play a song to begin')
+    );
+  } else if (lyrics.synced.length > 0) {
+    content = lyrics.synced.map(function(line, idx) {
+      var cls = 'lyrics-line';
+      if (idx < currentLine) cls += ' lyrics-line-past';
+      else if (idx === currentLine) cls += ' lyrics-line-current';
+      else cls += ' lyrics-line-future';
+      return React.createElement('div', { key: idx, className: cls }, line.text);
+    });
+  } else {
+    content = React.createElement('div', { style: { color: 'var(--muted)', fontSize: 15, whiteSpace: 'pre-wrap', lineHeight: 1.6, padding: 20 } }, lyrics.plain);
+  }
+
+  return React.createElement('div', { className: 'lyrics-content', ref: scrollRef }, content);
 }
 
-function PlayerBar(props) {
-  var currentSong = props.currentSong;
-  var playerState = props.playerState;
-  var timeInfo = props.timeInfo;
-  var onTogglePlay = props.onTogglePlay;
-  var onPrev = props.onPrev;
-  var onNext = props.onNext;
-  var onSeek = props.onSeek;
-  var onVolumeChange = props.onVolumeChange;
-  var onToggleShuffle = props.onToggleShuffle;
-  var onCycleRepeat = props.onCycleRepeat;
-  var onToggleMute = props.onToggleMute;
+function MiniPlayer(props) {
+  var engine = props.engine;
+  var playerState = engine.playerState;
+  var timeInfo = engine.timeInfo;
+  var currentSong = engine.currentSong;
+  var onTogglePlay = engine.togglePlay;
+  var onPrev = engine.prevTrack;
+  var onNext = engine.nextTrack;
+  var onVolumeChange = engine.setVolume;
+  var onToggleMute = engine.toggleMute;
 
-  var [isDragging, setIsDragging] = useState(false);
-  var [dragValue, setDragValue] = useState(0);
-
-  var handleSeekChange = useCallback(function(e) {
-    if (isDragging) setDragValue(parseFloat(e.target.value));
-  }, [isDragging]);
-
-  var handleSeekDown = useCallback(function() {
-    setIsDragging(true);
-    setDragValue(timeInfo.current);
-  }, [timeInfo.current]);
-
-  var handleSeekUp = useCallback(function(e) {
-    onSeek(parseFloat(e.target.value));
-    setIsDragging(false);
-  }, [onSeek]);
-
-  var displayCurrent = isDragging ? dragValue : timeInfo.current;
+  var title = (currentSong && currentSong.title) || 'No track';
+  var artist = (currentSong && currentSong.artist) || '--';
+  var thumbSrc = (currentSong && currentSong.albumArtUrl) ? currentSong.albumArtUrl : null;
+  var isPlaying = playerState.isPlaying;
+  var vol = playerState.volume;
   var dur = timeInfo.duration || 1;
-  var seekPct = Math.min((displayCurrent / dur) * 100, 100);
-  var volPct = playerState.volume * 100;
+  var seekPct = Math.min((timeInfo.current / dur) * 100, 100);
 
-  var volIcon = playerState.volume === 0 ? '\uD83D\uDD07'
-    : playerState.volume < 0.3 ? '\uD83D\uDD08'
-    : playerState.volume < 0.7 ? '\uD83D\uDD09'
-    : '\uD83D\uDD0A';
+  var [volOpen, setVolOpen] = useState(false);
+  var volRef = useRef(null);
 
-  return React.createElement('footer', { className: 'player-bar' },
-    React.createElement('div', { className: 'player-track-info' },
-      React.createElement('div', { className: 'player-album-art' },
-        currentSong && currentSong.albumArtUrl
-          ? React.createElement('img', { src: currentSong.albumArtUrl, alt: '', className: 'player-album-img' })
-          : React.createElement('div', { className: 'album-art-placeholder' }, '\u266A')
+  useEffect(function() {
+    var handler = function(e) {
+      if (volRef.current && !volRef.current.contains(e.target)) setVolOpen(false);
+    };
+    document.addEventListener('pointerdown', handler);
+    return function() { document.removeEventListener('pointerdown', handler); };
+  }, []);
+
+  return React.createElement('footer', { className: 'mini-player' },
+    React.createElement('div', { style: { position: 'relative', flex: 1, display: 'flex', alignItems: 'center', gap: 14 } },
+      React.createElement('div', { className: 'seek-bar-overlay' },
+        React.createElement('div', { className: 'fill', style: { width: seekPct + '%' } })
       ),
-      React.createElement('div', { className: 'player-track-details' },
-        React.createElement('div', { className: 'player-title' }, (currentSong && currentSong.title) || 'NO TRACK'),
-        React.createElement('div', { className: 'player-artist' }, (currentSong && currentSong.artist) || '\u2014')
-      )
-    ),
 
-    React.createElement('div', { className: 'player-controls' },
-      React.createElement('div', { className: 'controls-row' },
-        React.createElement('button', {
-          className: 'btn btn-control' + (playerState.shuffle ? ' active' : ''),
-          onClick: onToggleShuffle,
-          title: 'SHUFFLE'
-        }, '\u21C4'),
-        React.createElement('button', { className: 'btn btn-control', onClick: onPrev, title: 'PREVIOUS' }, '\u23EE'),
-        React.createElement('button', { className: 'btn btn-control btn-play', onClick: onTogglePlay, title: 'PLAY/PAUSE' },
-          playerState.isPlaying ? '\u23F8' : '\u25B6'
-        ),
-        React.createElement('button', { className: 'btn btn-control', onClick: onNext, title: 'NEXT' }, '\u23ED'),
-        React.createElement('button', {
-          className: 'btn btn-control' + (playerState.repeatMode !== 'off' ? ' active' : ''),
-          onClick: onCycleRepeat,
-          title: 'REPEAT'
-        }, playerState.repeatMode === 'one' ? '\u21BB' : '\u21BA')
+      React.createElement('button', { className: 'transport-btn', 'aria-label': 'Previous track', onClick: onPrev }, React.createElement(SvgPrev)),
+      React.createElement('button', { className: 'play-btn', 'aria-label': 'Play or pause', onClick: onTogglePlay },
+        isPlaying ? React.createElement(SvgPause) : React.createElement(SvgPlay)
       ),
-      React.createElement('div', { className: 'seek-row' },
-        React.createElement('span', { className: 'time-display' }, window.formatTime(displayCurrent)),
-        React.createElement('div', { className: 'seek-bar-container' },
-          React.createElement('div', { className: 'seek-bar-track' },
-            React.createElement('div', { className: 'seek-bar-fill', style: { width: seekPct + '%' } }),
-            React.createElement('div', { className: 'seek-bar-thumb', style: { left: seekPct + '%' } })
-          ),
-          React.createElement('input', {
-            type: 'range', className: 'seek-bar-input',
-            min: 0, max: timeInfo.duration || 100, step: 0.1,
-            value: displayCurrent,
-            onChange: handleSeekChange,
-            onMouseDown: handleSeekDown,
-            onMouseUp: handleSeekUp,
-            onTouchStart: handleSeekDown,
-            onTouchEnd: handleSeekUp
-          })
-        ),
-        React.createElement('span', { className: 'time-display' }, window.formatTime(timeInfo.duration))
-      )
-    ),
+      React.createElement('button', { className: 'transport-btn', 'aria-label': 'Next track', onClick: onNext }, React.createElement(SvgNext)),
 
-    React.createElement('div', { className: 'player-volume' },
-      React.createElement('button', { className: 'btn btn-icon', onClick: onToggleMute, title: 'MUTE' }, volIcon),
-      React.createElement('div', { className: 'volume-slider-container' },
-        React.createElement('div', { className: 'volume-slider-track' },
-          React.createElement('div', { className: 'volume-slider-fill', style: { width: volPct + '%' } }),
-          React.createElement('div', { className: 'volume-slider-thumb', style: { left: volPct + '%' } })
+      React.createElement('div', { className: 'mini-art' },
+        thumbSrc ? React.createElement('img', { src: thumbSrc, alt: '' }) : null
+      ),
+      React.createElement('div', { className: 'mini-info' },
+        React.createElement('span', { className: 't' }, window.escapeHtml(title)),
+        React.createElement('span', { className: 'a' }, window.escapeHtml(artist))
+      ),
+
+      React.createElement('div', { className: 'divider' }),
+
+      React.createElement('button', { className: 'transport-btn', 'aria-label': 'Lyrics', onClick: function() { props.onTabChange('lyrics'); } }, React.createElement(SvgLyrics)),
+
+      React.createElement('div', { className: 'mini-volume-wrap', ref: volRef },
+        React.createElement('button', { className: 'transport-btn', 'aria-label': 'Volume', onClick: function() { setVolOpen(function(v) { return !v; }); } },
+          vol === 0 ? React.createElement(SvgVolumeX) : React.createElement(SvgVolume)
         ),
-        React.createElement('input', {
-          type: 'range', className: 'volume-slider-input',
-          min: 0, max: 1, step: 0.01,
-          value: playerState.volume,
-          onChange: function(e) { onVolumeChange(parseFloat(e.target.value)); }
-        })
+        React.createElement('div', { className: 'mini-volume-slider', style: { display: volOpen ? 'block' : 'none' }, onClick: function(e) {
+          var rect = e.currentTarget.getBoundingClientRect();
+          var pct = (e.clientX - rect.left) / rect.width;
+          onVolumeChange(Math.max(0, Math.min(1, pct)));
+        } },
+          React.createElement('div', { className: 'fill', style: { width: (vol * 100) + '%' } })
+        )
       )
     )
   );
@@ -870,9 +868,10 @@ function App() {
   var db = useSongDatabase();
   var engine = useAudioEngine(db.songs);
 
+  var [activeTab, setActiveTab] = useState('overview');
   var [searchQuery, setSearchQuery] = useState('');
-  var [lyricsVisible, setLyricsVisible] = useState(false);
   var [lyrics, setLyrics] = useState(null);
+  var [loved, setLoved] = useState({});
 
   var handleSearch = useCallback(function(query) {
     setSearchQuery(query);
@@ -883,20 +882,32 @@ function App() {
     engine.playSong(index);
   }, [engine.playSong]);
 
+  var handlePlayAll = useCallback(function() {
+    if (db.songs.length > 0) engine.playSong(0);
+  }, [db.songs, engine.playSong]);
+
+  var handleLove = useCallback(function(id) {
+    setLoved(function(prev) {
+      var next = Object.assign({}, prev);
+      if (next[id]) { delete next[id]; }
+      else { next[id] = true; }
+      return next;
+    });
+  }, []);
+
   var status = !db.isLoaded ? 'STANDBY'
     : engine.playerState.isPlaying ? 'PLAYING'
     : 'PAUSED';
 
-  /* Attach real index for filtered songs */
   var displaySongs = useMemo(function() {
+    if (!db.isLoaded) return [];
     if (db.filteredSongs.length === db.songs.length) return db.songs;
     return db.filteredSongs.map(function(song) {
       var realIdx = db.songsRef.current.indexOf(song);
       return Object.assign({}, song, { _realIndex: realIdx });
     });
-  }, [db.filteredSongs, db.songs, db.songsRef]);
+  }, [db.filteredSongs, db.songs, db.songsRef, db.isLoaded]);
 
-  /* Fetch lyrics when song changes */
   useEffect(function() {
     if (!engine.currentSong) { setLyrics(null); return; }
     var song = engine.currentSong;
@@ -909,7 +920,6 @@ function App() {
     return function() { cancelled = true; };
   }, [engine.currentSong]);
 
-  /* Keyboard shortcuts */
   useEffect(function() {
     var onKey = function(e) {
       if (e.target.tagName === 'INPUT') return;
@@ -921,62 +931,99 @@ function App() {
     return function() { document.removeEventListener('keydown', onKey); };
   }, [engine.togglePlay, engine.nextTrack, engine.prevTrack]);
 
-  /* Auto-scan local music directory on mount */
   useEffect(function() {
     db.loadLocalFolder();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  var trackCountText = db.isLoaded ? db.songs.length + ' TRACKS' : '0 TRACKS';
+  var isLoading = db.loading;
+  var loadProg = db.loadProgress;
 
-  return React.createElement('div', { className: 'app-container' },
-    React.createElement(Header, {
-      status: status,
+  return React.createElement('div', { className: 'app-bg' },
+    React.createElement(BrowserBar, {
       searchQuery: searchQuery,
       onSearchChange: handleSearch,
-      onLoadFolder: db.loadFolder,
-      loading: db.loading,
-      loadProgress: db.loadProgress,
-      lyricsVisible: lyricsVisible,
-      onToggleLyrics: function() { setLyricsVisible(function(v) { return !v; }); }
+      onBack: function() { setActiveTab('overview'); }
     }),
 
-    React.createElement('div', { className: 'app-body' },
-      React.createElement(Sidebar, {
-        folderName: db.folderName,
-        trackCount: trackCountText,
-        eq: engine.playerState.eq,
-        onEQChange: engine.setEQ,
-        spatial: engine.playerState.spatial,
-        onSpatialChange: engine.setSpatial,
-        analyserRef: engine.analyserRef
-      }),
+    React.createElement(Sidebar, {
+      activeTab: activeTab,
+      onTabChange: setActiveTab,
+      onLoadFolder: db.loadFolder,
+      loading: isLoading
+    }),
 
-      React.createElement('div', { className: 'main-area' },
-        React.createElement(SongList, {
-          songs: displaySongs,
-          currentIndex: engine.playerState.currentIndex,
-          onPlaySong: handlePlaySong
-        }),
-        React.createElement(LyricsPanel, {
-          lyrics: lyrics,
-          currentTime: engine.timeInfo.current,
-          visible: lyricsVisible
-        })
-      )
+    React.createElement('main', { className: 'main-panel' },
+      React.createElement('div', { className: 'panel-header' },
+        React.createElement('div', { className: 'panel-nav' },
+          React.createElement('button', { className: 'icon-btn', 'aria-label': 'Back', onClick: function() { setActiveTab('overview'); } }, React.createElement(SvgChevronLeft)),
+          React.createElement('button', { className: 'icon-btn', 'aria-label': 'Forward' }, React.createElement(SvgChevronRight))
+        ),
+        React.createElement('div', { className: 'tabs' },
+          React.createElement('button', { className: 'tab' + (activeTab === 'overview' ? ' active' : ''), onClick: function() { setActiveTab('overview'); } }, 'Overview'),
+          React.createElement('button', { className: 'tab' + (activeTab === 'related' ? ' active' : ''), onClick: function() { setActiveTab('related'); } }, 'Equalizer'),
+          React.createElement('button', { className: 'tab' + (activeTab === 'lyrics' ? ' active' : ''), onClick: function() { setActiveTab('lyrics'); } }, 'Lyrics')
+        ),
+        React.createElement('div', { className: 'panel-header-spacer' })
+      ),
+
+      /* Loading state */
+      isLoading && !db.isLoaded
+        ? React.createElement('div', { className: 'loading-overlay' },
+            React.createElement('div', null, 'LOADING MUSIC...'),
+            React.createElement('div', { className: 'progress-bar' },
+              React.createElement('div', { className: 'fill', style: { width: (loadProg.total > 0 ? (loadProg.current / loadProg.total * 100) : 0) + '%' } })
+            ),
+            React.createElement('div', { style: { fontSize: 13, marginTop: 6 } }, loadProg.current + ' / ' + loadProg.total)
+          )
+        : React.createElement(React.Fragment, null,
+            activeTab === 'overview' &&
+              React.createElement('div', { className: 'tab-panel' },
+                React.createElement(ArtistHero, {
+                  songs: displaySongs,
+                  currentSong: engine.currentSong,
+                  isPlaying: engine.playerState.isPlaying,
+                  onPlayAll: handlePlayAll,
+                  onLoadFolder: db.loadFolder,
+                  folderName: db.folderName
+                }),
+                React.createElement('section', null,
+                  React.createElement('div', { className: 'playlist-header' },
+                    React.createElement('h2', null, displaySongs.length > 0 ? 'Top Playlist' : 'Playlist')
+                  ),
+                  React.createElement(SongList, {
+                    songs: displaySongs,
+                    currentIndex: engine.playerState.currentIndex,
+                    onPlaySong: handlePlaySong,
+                    loved: loved,
+                    onLove: handleLove
+                  })
+                )
+              ),
+
+            activeTab === 'related' &&
+              React.createElement('div', { className: 'tab-panel' },
+                React.createElement(RelatedArtistTab, {
+                  eq: engine.playerState.eq,
+                  spatial: engine.playerState.spatial,
+                  onEQChange: engine.setEQ,
+                  onSpatialChange: engine.setSpatial,
+                  analyserRef: engine.analyserRef
+                })
+              ),
+
+            activeTab === 'lyrics' &&
+              React.createElement('div', { className: 'tab-panel' },
+                React.createElement(LyricsTab, {
+                  lyrics: lyrics,
+                  currentTime: engine.timeInfo.current
+                })
+              )
+          )
     ),
 
-    React.createElement(PlayerBar, {
-      currentSong: engine.currentSong,
-      playerState: engine.playerState,
-      timeInfo: engine.timeInfo,
-      onTogglePlay: engine.togglePlay,
-      onPrev: engine.prevTrack,
-      onNext: engine.nextTrack,
-      onSeek: engine.seek,
-      onVolumeChange: engine.setVolume,
-      onToggleShuffle: engine.toggleShuffle,
-      onCycleRepeat: engine.cycleRepeat,
-      onToggleMute: engine.toggleMute
+    React.createElement(MiniPlayer, {
+      engine: engine,
+      onTabChange: setActiveTab
     }),
 
     React.createElement('audio', { ref: engine.audioRef, preload: 'auto', style: { display: 'none' } })
