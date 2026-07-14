@@ -1,7 +1,5 @@
 var AUDIO_EXTENSIONS = ['.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.wma'];
 var LOCAL_MUSIC_DIR = 'music';
-var NVIDIA_API_KEY = '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';
-/* RAPIDAPI_KEY available for future use: e9f2c625ebmsh6cd2de7109f2f5ep1f9991jsn4f3b636412b2 */
 
 window.pickFolder = async function() {
   try {
@@ -77,12 +75,7 @@ async function processFile(file, index) {
   var song = {
     id: 'song-' + Date.now() + '-' + index + '-' + Math.random().toString(36).slice(2, 8),
     title: window.stripExtension(file.name),
-    artist: 'UNKNOWN ARTIST',
-    album: 'UNKNOWN ALBUM',
     duration: 0,
-    trackNo: 0,
-    year: '',
-    genre: '',
     blobUrl: blobUrl,
     albumArtUrl: null,
     fileName: file.name
@@ -92,12 +85,7 @@ async function processFile(file, index) {
     var tags = await readId3Tags(file);
     if (tags) {
       if (tags.title) song.title = tags.title;
-      if (tags.artist) song.artist = tags.artist;
-      if (tags.album) song.album = tags.album;
-      if (tags.trackNo) song.trackNo = tags.trackNo;
       if (tags.picture) song.albumArtUrl = tags.picture;
-      if (tags.year) song.year = tags.year;
-      if (tags.genre) song.genre = tags.genre;
     }
   } catch (e) {}
 
@@ -125,11 +113,6 @@ function readId3Tags(file) {
 
           resolve({
             title: tags.title,
-            artist: tags.artist,
-            album: tags.album,
-            trackNo: tags.track,
-            year: tags.year,
-            genre: tags.genre,
             picture: albumArtUrl
           });
         },
@@ -138,178 +121,6 @@ function readId3Tags(file) {
     } catch (e) { resolve(null); }
   });
 }
-
-/* ---------- LOCAL MUSIC DIRECTORY SCAN ---------- */
-
-/* ---------- INTERNET METADATA (NVIDIA AI + album art) ---------- */
-
-window.fetchAIMetadata = async function(title, artist) {
-  if (!title) return null;
-
-  var callModel = async function(model, bodyExtra) {
-    var controller = new AbortController();
-    var timeout = setTimeout(function() { controller.abort(); }, 30000);
-
-    try {
-      var resp = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + NVIDIA_API_KEY
-        },
-        body: JSON.stringify(Object.assign({
-          model: model,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a music database. Extract song metadata from your training data. Respond with ONLY valid JSON. No other text or markdown.'
-            },
-            {
-              role: 'user',
-              content: 'Song: "' + title.replace(/"/g, "'") + '"\nArtist: ' + (artist && artist !== 'UNKNOWN ARTIST' ? artist.replace(/"/g, "'") : 'unknown') + '\n\nReturn JSON with these exact fields:\n{\n  "year": "YYYY",\n  "genre": "genre1, genre2",\n  "album": "Album Name"\n}\n\nIf unknown use empty string. Only output JSON.'
-            }
-          ],
-          max_tokens: 256,
-          temperature: 0.1,
-          stream: false
-        }, bodyExtra || {}))
-      });
-
-      clearTimeout(timeout);
-      if (!resp.ok) { console.warn('AI ' + model + ' HTTP', resp.status); return null; }
-
-      var data = await resp.json();
-      var text = data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '';
-      var match = text.match(/\{[\s\S]*\}/);
-      if (match) {
-        var parsed = JSON.parse(match[0]);
-        return {
-          year: String(parsed.year || ''),
-          genre: String(parsed.genre || ''),
-          album: String(parsed.album || '')
-        };
-      }
-      return null;
-    } catch (e) {
-      clearTimeout(timeout);
-      if (e.name === 'AbortError') { return 'TIMEOUT'; }
-      console.warn('AI ' + model + ' error:', e);
-      return null;
-    }
-  };
-
-  /* Primary: Llama 3.2 3B (proven 0.4s response, fast & reliable) */
-  var result = await callModel('meta/llama-3.2-3b-instruct');
-  if (result && result !== 'TIMEOUT') return result;
-
-  /* Fallback: Gemma 4 31B (slower cold-start, user's preferred) */
-  console.warn('Llama 3.2 3B ' + (result === 'TIMEOUT' ? 'timed out' : 'failed') + ' \u2192 trying Gemma 4 31B');
-  return await callModel('google/gemma-4-31b-it', {
-    top_p: 0.95,
-    temperature: 1.0,
-    chat_template_kwargs: { enable_thinking: true }
-  });
-};
-
-window.fetchAlbumArtFromInternet = async function(title, artist, album) {
-  if (!title && !album) return null;
-
-  var searchITunes = async function(term) {
-    try {
-      var resp = await fetch('https://itunes.apple.com/search?term=' + encodeURIComponent(term) + '&entity=song&limit=3&country=US', { signal: AbortSignal.timeout(10000) });
-      if (!resp.ok) return null;
-      var data = await resp.json();
-      if (data.results && data.results.length > 0) {
-        var artUrl = data.results[0].artworkUrl100;
-        if (artUrl) return artUrl.replace('100x100bb', '600x600bb');
-      }
-    } catch (e) {
-      if (e.name !== 'TimeoutError') console.warn('iTunes search error:', e);
-    }
-    return null;
-  };
-
-  /* Strategy 1: search by album + artist (most accurate) */
-  if (album) {
-    var byAlbum = (album + ' ' + (artist || '')).trim();
-    var url = await searchITunes(byAlbum);
-    if (url) { console.log('Album art found via album search:', byAlbum); return url; }
-  }
-
-  /* Strategy 2: search by title + artist */
-  var byTitle = (title + ' ' + (artist || '')).trim();
-  var url2 = await searchITunes(byTitle);
-  if (url2) { console.log('Album art found via title search:', byTitle); return url2; }
-
-  /* Strategy 3: Cover Art Archive via MusicBrainz (fallback when iTunes has nothing) */
-  if (album) {
-    var url3 = await window.fetchAlbumArtFromCoverArtArchive(album, artist);
-    if (url3) { console.log('Album art found via Cover Art Archive:', album); return url3; }
-  }
-
-  /* Strategy 4: YouTube thumbnail via Invidious API */
-  var url4 = await window.fetchAlbumArtFromYouTube(title, artist);
-  if (url4) { console.log('Album art found via YouTube thumbnail:', title); return url4; }
-
-  console.warn('No album art found for:', title, artist, album);
-  return null;
-};
-
-window.fetchAlbumArtFromCoverArtArchive = async function(album, artist) {
-  if (!album) return null;
-  try {
-    var query = 'release:"' + encodeURIComponent(album.replace(/"/g, '')) + '"';
-    if (artist && artist !== 'UNKNOWN ARTIST') {
-      query += ' AND artist:"' + encodeURIComponent(artist.replace(/"/g, '')) + '"';
-    }
-    var resp = await fetch('https://musicbrainz.org/ws/2/release?query=' + query + '&fmt=json&limit=3');
-    if (!resp.ok) return null;
-    var data = await resp.json();
-    if (!data.releases || data.releases.length === 0) return null;
-
-    for (var i = 0; i < data.releases.length; i++) {
-      var mbid = data.releases[i].id;
-      var caaUrl = 'https://coverartarchive.org/release/' + mbid + '/front-500.jpg';
-      try {
-        var headResp = await fetch(caaUrl, { method: 'HEAD', redirect: 'follow' });
-        if (headResp.ok) return caaUrl;
-      } catch (e) {}
-    }
-    return null;
-  } catch (e) {
-    console.warn('Cover Art Archive error:', e);
-    return null;
-  }
-};
-
-window.fetchAlbumArtFromYouTube = async function(title, artist) {
-  if (!title) return null;
-  try {
-    var query = encodeURIComponent((title + ' ' + (artist || '')).trim());
-    var resp = await fetch('https://y.com.sb/api/v1/search?q=' + query + '&type=video&limit=1');
-    if (!resp.ok) return null;
-    var data = await resp.json();
-    if (!data.videoId && !data.videos) {
-      /* try to extract from raw response */
-      var text = JSON.stringify(data);
-      var idMatch = text.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/);
-      if (idMatch) {
-        var vid = idMatch[1];
-        return 'https://i.ytimg.com/vi/' + vid + '/hqdefault.jpg';
-      }
-      return null;
-    }
-    var videoId = data.videoId || (data.videos && data.videos[0] && data.videos[0].videoId);
-    if (videoId) {
-      return 'https://i.ytimg.com/vi/' + videoId + '/hqdefault.jpg';
-    }
-    return null;
-  } catch (e) {
-    console.warn('YouTube thumbnail error:', e);
-    return null;
-  }
-};
 
 /* ---------- LOCAL MUSIC DIRECTORY SCAN ---------- */
 
@@ -378,12 +189,7 @@ async function processUrlFile(url, name, index) {
   var song = {
     id: 'song-' + Date.now() + '-' + index + '-' + Math.random().toString(36).slice(2, 8),
     title: window.stripExtension(name),
-    artist: 'UNKNOWN ARTIST',
-    album: 'UNKNOWN ALBUM',
     duration: 0,
-    trackNo: 0,
-    year: '',
-    genre: '',
     blobUrl: url,
     albumArtUrl: null,
     fileName: name
@@ -393,12 +199,7 @@ async function processUrlFile(url, name, index) {
     var tags = await readId3TagsFromUrl(url);
     if (tags) {
       if (tags.title) song.title = tags.title;
-      if (tags.artist) song.artist = tags.artist;
-      if (tags.album) song.album = tags.album;
-      if (tags.trackNo) song.trackNo = tags.trackNo;
       if (tags.picture) song.albumArtUrl = tags.picture;
-      if (tags.year) song.year = tags.year;
-      if (tags.genre) song.genre = tags.genre;
     }
   } catch (e) {}
 
@@ -426,11 +227,6 @@ function readId3TagsFromUrl(url) {
 
           resolve({
             title: tags.title,
-            artist: tags.artist,
-            album: tags.album,
-            trackNo: tags.track,
-            year: tags.year,
-            genre: tags.genre,
             picture: albumArtUrl
           });
         },
@@ -439,6 +235,25 @@ function readId3TagsFromUrl(url) {
     } catch (e) { console.warn('readId3TagsFromUrl catch:', url, e); resolve(null); }
   });
 }
+
+/* ---------- YOUTUBE THUMBNAIL (only source, no AI) ---------- */
+
+window.fetchAlbumArtBySongName = async function(title) {
+  if (!title) return null;
+  try {
+    var query = encodeURIComponent(title.replace(/[^\w\s]/g, ' ').trim());
+    var resp = await fetch('https://y.com.sb/api/v1/search?q=' + query + '&type=video&limit=1');
+    if (!resp.ok) return null;
+    var data = await resp.json();
+    var text = JSON.stringify(data);
+    var idMatch = text.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/);
+    if (idMatch) return 'https://i.ytimg.com/vi/' + idMatch[1] + '/hqdefault.jpg';
+    return null;
+  } catch (e) {
+    console.warn('YouTube thumbnail error:', e);
+    return null;
+  }
+};
 
 function getAudioDuration(blobUrl) {
   return new Promise(function(resolve) {
