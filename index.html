@@ -546,19 +546,20 @@ function CDPlayer(props) {
 
   var spinClass = hasSong ? ' cd-spin' + (isPlaying ? ' cd-fast' : ' cd-slow') : '';
 
+  var cdStyle = {};
+  if (thumbSrc) {
+    cdStyle = { backgroundImage: 'url(' + thumbSrc + ')', backgroundSize: 'cover', backgroundPosition: 'center' };
+  }
+
   return React.createElement('div', { className: 'cd-player-wrap' },
     React.createElement('div', {
       className: 'cd-vinyl' + spinClass,
+      style: cdStyle,
       onClick: hasSong ? onTogglePlay : null,
       title: hasSong ? (isPlaying ? 'Pause' : 'Play') : ''
     },
       React.createElement('div', { className: 'cd-shine' }),
       React.createElement('div', { className: 'cd-vinyl-overlay' }),
-      React.createElement('div', { className: 'cd-art' },
-        thumbSrc
-          ? React.createElement('img', { src: thumbSrc, alt: '' })
-          : React.createElement('div', { className: 'cd-art-fallback' }, '\u266A')
-      ),
       React.createElement('div', { className: 'cd-center-hole' })
     ),
     React.createElement(SongInfo, { currentSong: currentSong, songs: props.songs })
