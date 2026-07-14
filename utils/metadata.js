@@ -248,6 +248,10 @@ window.fetchAlbumArtFromInternet = async function(title, artist, album) {
     if (url3) { console.log('Album art found via Cover Art Archive:', album); return url3; }
   }
 
+  /* Strategy 4: YouTube thumbnail via Invidious API */
+  var url4 = await window.fetchAlbumArtFromYouTube(title, artist);
+  if (url4) { console.log('Album art found via YouTube thumbnail:', title); return url4; }
+
   console.warn('No album art found for:', title, artist, album);
   return null;
 };
@@ -275,6 +279,34 @@ window.fetchAlbumArtFromCoverArtArchive = async function(album, artist) {
     return null;
   } catch (e) {
     console.warn('Cover Art Archive error:', e);
+    return null;
+  }
+};
+
+window.fetchAlbumArtFromYouTube = async function(title, artist) {
+  if (!title) return null;
+  try {
+    var query = encodeURIComponent((title + ' ' + (artist || '')).trim());
+    var resp = await fetch('https://y.com.sb/api/v1/search?q=' + query + '&type=video&limit=1');
+    if (!resp.ok) return null;
+    var data = await resp.json();
+    if (!data.videoId && !data.videos) {
+      /* try to extract from raw response */
+      var text = JSON.stringify(data);
+      var idMatch = text.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/);
+      if (idMatch) {
+        var vid = idMatch[1];
+        return 'https://i.ytimg.com/vi/' + vid + '/hqdefault.jpg';
+      }
+      return null;
+    }
+    var videoId = data.videoId || (data.videos && data.videos[0] && data.videos[0].videoId);
+    if (videoId) {
+      return 'https://i.ytimg.com/vi/' + videoId + '/hqdefault.jpg';
+    }
+    return null;
+  } catch (e) {
+    console.warn('YouTube thumbnail error:', e);
     return null;
   }
 };
