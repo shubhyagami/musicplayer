@@ -1,5 +1,6 @@
 var AUDIO_EXTENSIONS = ['.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.wma'];
 var LOCAL_MUSIC_DIR = 'music';
+var NVIDIA_API_KEY = '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';
 
 window.pickFolder = async function() {
   try {
@@ -139,37 +140,57 @@ function readId3Tags(file) {
 
 /* ---------- LOCAL MUSIC DIRECTORY SCAN ---------- */
 
-/* ---------- INTERNET METADATA (MusicBrainz + album art) ---------- */
+/* ---------- INTERNET METADATA (NVIDIA AI + album art) ---------- */
 
-window.fetchMusicBrainzMetadata = async function(title, artist) {
+window.fetchAIMetadata = async function(title, artist) {
   if (!title) return null;
   try {
-    var safeTitle = title.replace(/["']/g, '').trim();
-    var query = 'recording:"' + encodeURIComponent(safeTitle) + '"';
-    if (artist && artist !== 'UNKNOWN ARTIST') {
-      query += ' AND artist:"' + encodeURIComponent(artist.replace(/["']/g, '').trim()) + '"';
-    }
-    var resp = await fetch('https://musicbrainz.org/ws/2/recording?query=' + query + '&fmt=json&limit=5');
-    if (!resp.ok) { console.warn('MusicBrainz HTTP', resp.status); return null; }
+    var controller = new AbortController();
+    var timeout = setTimeout(function() { controller.abort(); }, 30000);
+
+    var resp = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + NVIDIA_API_KEY
+      },
+      body: JSON.stringify({
+        model: 'minimaxai/minimax-m2.7',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a music database. Extract song metadata from your training data. Respond with ONLY valid JSON. No other text.'
+          },
+          {
+            role: 'user',
+            content: 'For the song "' + title.replace(/"/g, "'") + '" by ' + (artist && artist !== 'UNKNOWN ARTIST' ? artist.replace(/"/g, "'") : 'unknown') + ', return JSON: {"year":"YYYY","genre":"genre1, genre2","album":"Album Name"}. If you don\'t know a field use an empty string. Only output JSON.'
+          }
+        ],
+        temperature: 0.1,
+        max_tokens: 256,
+        stream: false
+      })
+    });
+
+    clearTimeout(timeout);
+    if (!resp.ok) { console.warn('NVIDIA AI HTTP', resp.status); return null; }
+
     var data = await resp.json();
-    if (!data.recordings || data.recordings.length === 0) return null;
-
-    var recording = data.recordings[0];
-    var releases = recording.releases || [];
-    var release = releases[0] || null;
-
-    var result = { year: '', album: '', genre: '' };
-    if (release) {
-      if (release.date) result.year = release.date.split('-')[0];
-      if (release.title) result.album = release.title;
+    var text = data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '';
+    var match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+      var parsed = JSON.parse(match[0]);
+      return {
+        year: String(parsed.year || ''),
+        genre: String(parsed.genre || ''),
+        album: String(parsed.album || '')
+      };
     }
-    var tags = recording.tags || [];
-    if (tags.length > 0) {
-      result.genre = tags[0].name.charAt(0).toUpperCase() + tags[0].name.slice(1);
-    }
-    return result;
+    return null;
   } catch (e) {
-    console.warn('MusicBrainz error:', e);
+    if (e.name === 'AbortError') console.warn('NVIDIA AI request timed out');
+    else console.warn('NVIDIA AI error:', e);
     return null;
   }
 };

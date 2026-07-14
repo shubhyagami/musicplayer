@@ -918,7 +918,7 @@ function App() {
       if (!cancelled) setLyrics(result);
     });
 
-    window.fetchMusicBrainzMetadata(song.title, song.artist).then(function(mb) {
+    window.fetchAIMetadata(song.title, song.artist).then(function(mb) {
       if (!cancelled && mb) setInternetMeta(mb);
     });
 
