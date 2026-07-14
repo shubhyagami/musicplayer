@@ -79,6 +79,8 @@ async function processFile(file, index) {
     album: 'UNKNOWN ALBUM',
     duration: 0,
     trackNo: 0,
+    year: '',
+    genre: '',
     blobUrl: blobUrl,
     albumArtUrl: null,
     fileName: file.name
@@ -92,6 +94,8 @@ async function processFile(file, index) {
       if (tags.album) song.album = tags.album;
       if (tags.trackNo) song.trackNo = tags.trackNo;
       if (tags.picture) song.albumArtUrl = tags.picture;
+      if (tags.year) song.year = tags.year;
+      if (tags.genre) song.genre = tags.genre;
     }
   } catch (e) {}
 
@@ -122,6 +126,8 @@ function readId3Tags(file) {
             artist: tags.artist,
             album: tags.album,
             trackNo: tags.track,
+            year: tags.year,
+            genre: tags.genre,
             picture: albumArtUrl
           });
         },
@@ -202,6 +208,8 @@ async function processUrlFile(url, name, index) {
     album: 'UNKNOWN ALBUM',
     duration: 0,
     trackNo: 0,
+    year: '',
+    genre: '',
     blobUrl: url,
     albumArtUrl: null,
     fileName: name
@@ -215,6 +223,8 @@ async function processUrlFile(url, name, index) {
       if (tags.album) song.album = tags.album;
       if (tags.trackNo) song.trackNo = tags.trackNo;
       if (tags.picture) song.albumArtUrl = tags.picture;
+      if (tags.year) song.year = tags.year;
+      if (tags.genre) song.genre = tags.genre;
     }
   } catch (e) {}
 
@@ -245,6 +255,8 @@ function readId3TagsFromUrl(url) {
             artist: tags.artist,
             album: tags.album,
             trackNo: tags.track,
+            year: tags.year,
+            genre: tags.genre,
             picture: albumArtUrl
           });
         },
