@@ -539,8 +539,10 @@ function CDPlayer(props) {
   var currentSong = props.currentSong;
   var isPlaying = props.isPlaying;
   var onTogglePlay = props.onTogglePlay;
+  var internetAlbumArt = props.internetAlbumArt;
+  var internetMeta = props.internetMeta;
 
-  var thumbSrc = (currentSong && currentSong.albumArtUrl) ? currentSong.albumArtUrl : null;
+  var thumbSrc = (currentSong && currentSong.albumArtUrl) ? currentSong.albumArtUrl : (currentSong && internetAlbumArt ? internetAlbumArt : null);
   var hasSong = !!currentSong;
 
   var cdStyle = {};
@@ -564,13 +566,14 @@ function CDPlayer(props) {
       ),
       React.createElement('div', { className: 'cd-center-hole' })
     ),
-    React.createElement(SongInfo, { currentSong: currentSong, songs: props.songs })
+    React.createElement(SongInfo, { currentSong: currentSong, songs: props.songs, internetMeta: internetMeta })
   );
 }
 
 function SongInfo(props) {
   var song = props.currentSong;
   var songs = props.songs || [];
+  var im = props.internetMeta || {};
 
   if (!song) {
     return React.createElement('div', { className: 'song-info-panel' },
@@ -582,8 +585,9 @@ function SongInfo(props) {
     );
   }
 
-  var yearDisplay = song.year || '';
-  var genreDisplay = song.genre || '';
+  var yearDisplay = song.year || im.year || '';
+  var genreDisplay = song.genre || im.genre || '';
+  var albumDisplay = song.album || im.album || '';
   var trackDisplay = song.trackNo ? window.formatTrackNumber(song.trackNo) : '';
   var durDisplay = window.formatTime(song.duration);
 
@@ -591,9 +595,9 @@ function SongInfo(props) {
     React.createElement('div', { className: 'song-info-title' }, window.escapeHtml(song.title)),
     React.createElement('div', { className: 'song-info-artist' }, window.escapeHtml(song.artist)),
     React.createElement('div', { className: 'song-info-grid' },
-      song.album ? React.createElement('div', { className: 'song-info-item' },
+      albumDisplay ? React.createElement('div', { className: 'song-info-item' },
         React.createElement('span', { className: 'label' }, 'Album'),
-        React.createElement('span', { className: 'value' }, window.escapeHtml(song.album))
+        React.createElement('span', { className: 'value' }, window.escapeHtml(albumDisplay))
       ) : null,
       trackDisplay ? React.createElement('div', { className: 'song-info-item' },
         React.createElement('span', { className: 'label' }, 'Track'),
@@ -875,6 +879,8 @@ function App() {
   var [lyrics, setLyrics] = useState(null);
   var [loved, setLoved] = useState({});
   var [drawerOpen, setDrawerOpen] = useState(false);
+  var [internetMeta, setInternetMeta] = useState({ year: '', album: '', genre: '' });
+  var [internetAlbumArt, setInternetAlbumArt] = useState(null);
 
   var handleSearch = useCallback(function(query) {
     setSearchQuery(query);
@@ -904,12 +910,20 @@ function App() {
   }, [db.filteredSongs, db.songs, db.songsRef, db.isLoaded]);
 
   useEffect(function() {
-    if (!engine.currentSong) { setLyrics(null); return; }
+    if (!engine.currentSong) { setLyrics(null); setInternetMeta({ year: '', album: '', genre: '' }); setInternetAlbumArt(null); return; }
     var song = engine.currentSong;
     var cancelled = false;
 
     window.fetchLyrics(song.title, song.artist, song.album, song.duration).then(function(result) {
       if (!cancelled) setLyrics(result);
+    });
+
+    window.fetchMusicBrainzMetadata(song.title, song.artist).then(function(mb) {
+      if (!cancelled && mb) setInternetMeta(mb);
+    });
+
+    window.fetchAlbumArtFromInternet(song.title, song.artist).then(function(url) {
+      if (!cancelled && url) setInternetAlbumArt(url);
     });
 
     return function() { cancelled = true; };
@@ -995,7 +1009,9 @@ function App() {
                   currentSong: engine.currentSong,
                   isPlaying: engine.playerState.isPlaying,
                   onTogglePlay: engine.togglePlay,
-                  songs: displaySongs
+                  songs: displaySongs,
+                  internetAlbumArt: internetAlbumArt,
+                  internetMeta: internetMeta
                 }),
                 React.createElement(AdvancedEQ, {
                   eq: engine.playerState.eq,

@@ -139,6 +139,60 @@ function readId3Tags(file) {
 
 /* ---------- LOCAL MUSIC DIRECTORY SCAN ---------- */
 
+/* ---------- INTERNET METADATA (MusicBrainz + album art) ---------- */
+
+window.fetchMusicBrainzMetadata = async function(title, artist) {
+  if (!title) return null;
+  try {
+    var safeTitle = title.replace(/["']/g, '').trim();
+    var query = 'recording:"' + encodeURIComponent(safeTitle) + '"';
+    if (artist && artist !== 'UNKNOWN ARTIST') {
+      query += ' AND artist:"' + encodeURIComponent(artist.replace(/["']/g, '').trim()) + '"';
+    }
+    var resp = await fetch('https://musicbrainz.org/ws/2/recording?query=' + query + '&fmt=json&limit=5');
+    if (!resp.ok) { console.warn('MusicBrainz HTTP', resp.status); return null; }
+    var data = await resp.json();
+    if (!data.recordings || data.recordings.length === 0) return null;
+
+    var recording = data.recordings[0];
+    var releases = recording.releases || [];
+    var release = releases[0] || null;
+
+    var result = { year: '', album: '', genre: '' };
+    if (release) {
+      if (release.date) result.year = release.date.split('-')[0];
+      if (release.title) result.album = release.title;
+    }
+    var tags = recording.tags || [];
+    if (tags.length > 0) {
+      result.genre = tags[0].name.charAt(0).toUpperCase() + tags[0].name.slice(1);
+    }
+    return result;
+  } catch (e) {
+    console.warn('MusicBrainz error:', e);
+    return null;
+  }
+};
+
+window.fetchAlbumArtFromInternet = async function(title, artist) {
+  if (!title) return null;
+  try {
+    var term = encodeURIComponent((title + ' ' + (artist || '')).trim());
+    var resp = await fetch('https://itunes.apple.com/search?term=' + term + '&entity=song&limit=1&country=US');
+    if (!resp.ok) return null;
+    var data = await resp.json();
+    if (data.results && data.results.length > 0) {
+      var artUrl = data.results[0].artworkUrl100;
+      if (artUrl) return artUrl.replace('100x100bb', '600x600bb');
+    }
+  } catch (e) {
+    console.warn('Album art fetch error:', e);
+  }
+  return null;
+};
+
+/* ---------- LOCAL MUSIC DIRECTORY SCAN ---------- */
+
 window.scanLocalMusicDir = async function(onProgress) {
   var entries = [];
 
