@@ -937,6 +937,7 @@ function App() {
   }
 
   return React.createElement('div', { className: 'app-bg' },
+    React.createElement('video', { className: 'bg-video', autoPlay: true, muted: true, loop: true, playsInline: true, src: 'background.mp4' }),
     React.createElement(BrowserBar, {
       searchQuery: searchQuery,
       onSearchChange: handleSearch,

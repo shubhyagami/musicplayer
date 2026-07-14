@@ -38,14 +38,14 @@ button:focus-visible, .tab:focus-visible {
   position: relative;
   min-height: 100vh;
   isolation: isolate;
-  background:
-    radial-gradient(ellipse 900px 500px at 15% 8%, rgba(255,232,190,0.55), transparent 60%),
-    radial-gradient(ellipse 700px 600px at 92% 20%, rgba(180,150,110,0.35), transparent 60%),
-    radial-gradient(ellipse 600px 500px at 8% 90%, rgba(120,140,95,0.30), transparent 60%),
-    radial-gradient(ellipse 500px 500px at 90% 85%, rgba(30,22,14,0.55), transparent 60%),
-    linear-gradient(155deg, #d8cdb9 0%, #b7a186 22%, #8d7458 48%, #5a4433 72%, #2f2318 100%);
+  background: rgba(10,8,6,0.55);
   padding: 28px 32px 150px;
   overflow-x: hidden;
+}
+
+.bg-video {
+  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+  object-fit: cover; z-index: -1;
 }
 
 .icon-btn {
