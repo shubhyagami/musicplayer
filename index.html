@@ -522,12 +522,6 @@ function Sidebar(props) {
       'aria-label': 'Equalizer',
       onClick: function() { props.onTabChange('eq'); }
     }, React.createElement(SvgEQ)),
-    React.createElement('button', {
-      className: 'load-folder-btn',
-      onClick: props.onLoadFolder,
-      disabled: props.loading,
-      style: { marginTop: 'auto' }
-    }, React.createElement(SvgFolder), props.loading ? 'LOADING' : 'FOLDER')
   );
 }
 
