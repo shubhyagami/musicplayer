@@ -144,55 +144,72 @@ function readId3Tags(file) {
 
 window.fetchAIMetadata = async function(title, artist) {
   if (!title) return null;
-  try {
+
+  var tryModel = async function(model, bodyExtra) {
     var controller = new AbortController();
-    var timeout = setTimeout(function() { controller.abort(); }, 30000);
+    var timeout = setTimeout(function() { controller.abort(); }, 120000);
 
-    var resp = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + NVIDIA_API_KEY
-      },
-      body: JSON.stringify({
-        model: 'minimaxai/minimax-m2.7',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a music database. Extract song metadata from your training data. Respond with ONLY valid JSON. No other text.'
-          },
-          {
-            role: 'user',
-            content: 'For the song "' + title.replace(/"/g, "'") + '" by ' + (artist && artist !== 'UNKNOWN ARTIST' ? artist.replace(/"/g, "'") : 'unknown') + ', return JSON: {"year":"YYYY","genre":"genre1, genre2","album":"Album Name"}. If you don\'t know a field use an empty string. Only output JSON.'
-          }
-        ],
-        temperature: 0.1,
-        max_tokens: 256,
-        stream: false
-      })
-    });
+    try {
+      var resp = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + NVIDIA_API_KEY
+        },
+        body: JSON.stringify(Object.assign({
+          model: model,
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a music database. Extract song metadata from your training data. Respond with ONLY valid JSON. No other text or markdown.'
+            },
+            {
+              role: 'user',
+              content: 'Song: "' + title.replace(/"/g, "'") + '"\nArtist: ' + (artist && artist !== 'UNKNOWN ARTIST' ? artist.replace(/"/g, "'") : 'unknown') + '\n\nReturn JSON with these exact fields:\n{\n  "year": "YYYY",\n  "genre": "genre1, genre2",\n  "album": "Album Name"\n}\n\nIf unknown use empty string. Only output JSON.'
+            }
+          ],
+          max_tokens: 256,
+          temperature: 0.1,
+          stream: false
+        }, bodyExtra || {}))
+      });
 
-    clearTimeout(timeout);
-    if (!resp.ok) { console.warn('NVIDIA AI HTTP', resp.status); return null; }
+      clearTimeout(timeout);
+      if (!resp.ok) { console.warn('NVIDIA ' + model + ' HTTP', resp.status); return null; }
 
-    var data = await resp.json();
-    var text = data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '';
-    var match = text.match(/\{[\s\S]*\}/);
-    if (match) {
-      var parsed = JSON.parse(match[0]);
-      return {
-        year: String(parsed.year || ''),
-        genre: String(parsed.genre || ''),
-        album: String(parsed.album || '')
-      };
+      var data = await resp.json();
+      var text = data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '';
+      var match = text.match(/\{[\s\S]*\}/);
+      if (match) {
+        var parsed = JSON.parse(match[0]);
+        return {
+          year: String(parsed.year || ''),
+          genre: String(parsed.genre || ''),
+          album: String(parsed.album || '')
+        };
+      }
+      return null;
+    } catch (e) {
+      clearTimeout(timeout);
+      if (e.name === 'AbortError') { console.warn('NVIDIA ' + model + ' timed out'); return 'TIMEOUT'; }
+      console.warn('NVIDIA ' + model + ' error:', e);
+      return null;
     }
-    return null;
-  } catch (e) {
-    if (e.name === 'AbortError') console.warn('NVIDIA AI request timed out');
-    else console.warn('NVIDIA AI error:', e);
-    return null;
-  }
+  };
+
+  /* Try Gemma 4 31B first (user's preferred model, slower cold-start) */
+  var result = await tryModel('google/gemma-4-31b-it', {
+    top_p: 0.95,
+    temperature: 1.0,
+    chat_template_kwargs: { enable_thinking: true }
+  });
+
+  if (result && result !== 'TIMEOUT') return result;
+
+  /* Fallback to fast Llama 3.2 3B if Gemma times out */
+  console.warn('Gemma 31B ' + (result === 'TIMEOUT' ? 'timed out' : 'failed') + ', falling back to Llama 3.2 3B');
+  return await tryModel('meta/llama-3.2-3b-instruct');
 };
 
 window.fetchAlbumArtFromInternet = async function(title, artist) {
