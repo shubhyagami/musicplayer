@@ -140,13 +140,19 @@ function useAudioEngine(songs) {
     dance:   [6,5,3,2,1,-1,0,2,5,6]
   };
 
+  var initialEq = getPersisted('eq-settings', [0,0,0,0,0,0,0,0,0,0]);
+  /* migrate old object format {bass,mid,treble} to new array */
+  if (typeof initialEq !== 'object' || !Array.isArray(initialEq) || initialEq.length !== 10) {
+    initialEq = [0,0,0,0,0,0,0,0,0,0];
+  }
+
   var [playerState, setPlayerState] = useState({
     currentIndex: -1,
     isPlaying: false,
     shuffle: false,
     repeatMode: 'off',
     volume: getPersisted('player-volume', 0.8),
-    eq: getPersisted('eq-settings', [0,0,0,0,0,0,0,0,0,0]),
+    eq: initialEq,
     spatial: getPersisted('spatial-settings', 0)
   });
 
@@ -537,17 +543,24 @@ function CDPlayer(props) {
   var thumbSrc = (currentSong && currentSong.albumArtUrl) ? currentSong.albumArtUrl : null;
   var hasSong = !!currentSong;
 
+  var cdStyle = {};
+  if (thumbSrc) {
+    cdStyle = { backgroundImage: 'url(' + thumbSrc + ')', backgroundSize: 'cover', backgroundPosition: 'center' };
+  }
+
+  var spinClass = hasSong ? ' cd-spin' + (isPlaying ? ' cd-fast' : ' cd-slow') : '';
+
   return React.createElement('div', { className: 'cd-player-wrap' },
     React.createElement('div', {
-      className: 'cd-vinyl' + (hasSong ? (isPlaying ? ' cd-spin' : ' cd-spin cd-paused') : ''),
+      className: 'cd-vinyl' + spinClass,
+      style: cdStyle,
       onClick: hasSong ? onTogglePlay : null,
       title: hasSong ? (isPlaying ? 'Pause' : 'Play') : ''
     },
       React.createElement('div', { className: 'cd-shine' }),
-      React.createElement('div', { className: 'cd-art' },
-        thumbSrc
-          ? React.createElement('img', { src: thumbSrc, alt: '' })
-          : React.createElement('div', { className: 'cd-art-fallback' }, '\u266A')
+      React.createElement('div', { className: 'cd-vinyl-overlay' }),
+      !thumbSrc && React.createElement('div', { className: 'cd-art' },
+        React.createElement('div', { className: 'cd-art-fallback' }, '\u266A')
       ),
       React.createElement('div', { className: 'cd-center-hole' })
     ),

@@ -260,9 +260,9 @@ function readId3TagsFromUrl(url) {
             picture: albumArtUrl
           });
         },
-        onError: function() { resolve(null); }
+        onError: function(err) { console.warn('readId3TagsFromUrl fail:', url, err); resolve(null); }
       });
-    } catch (e) { resolve(null); }
+    } catch (e) { console.warn('readId3TagsFromUrl catch:', url, e); resolve(null); }
   });
 }
 
