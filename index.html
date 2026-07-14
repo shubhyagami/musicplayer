@@ -669,19 +669,20 @@ function AdvancedEQ(props) {
 
     return React.createElement('div', { key: i, className: 'eq-10-band' },
       React.createElement('div', { className: 'eq-10-value' }, (val >= 0 ? '+' : '') + val),
-      React.createElement('div', {
-        className: 'eq-10-slider',
-        onPointerDown: function(e) { handlePointerDown(i, e); }
-      },
         React.createElement('div', {
-          className: 'eq-10-fill' + (isPos ? ' pos' : ' neg'),
-          style: isPos ? { height: fillH + '%' } : { height: fillH + '%', top: '50%', bottom: 'auto' }
-        }),
-        React.createElement('div', {
-          className: 'eq-10-thumb',
-          style: { bottom: (pct * 100) + '%' }
-        })
-      ),
+          className: 'eq-10-slider',
+          onPointerDown: function(e) { handlePointerDown(i, e); }
+        },
+          React.createElement('div', { className: 'eq-10-slider-track' }),
+          React.createElement('div', {
+            className: 'eq-10-fill' + (isPos ? ' pos' : ' neg'),
+            style: isPos ? { height: fillH + '%' } : { height: fillH + '%', top: '50%', bottom: 'auto' }
+          }),
+          React.createElement('div', {
+            className: 'eq-10-thumb',
+            style: { bottom: (pct * 100) + '%' }
+          })
+        ),
       React.createElement('div', { className: 'eq-10-label' }, label)
     );
   });
