@@ -38,7 +38,7 @@ button:focus-visible, .tab:focus-visible {
   position: relative;
   min-height: 100vh;
   isolation: isolate;
-  background: rgba(10,8,6,0.55);
+  background: rgba(10,8,6,0.08);
   padding: 28px 32px 150px;
   overflow-x: hidden;
 }
@@ -529,7 +529,7 @@ button:focus-visible, .tab:focus-visible {
 .playlist-drawer {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 9;
   width: 380px; max-width: 90vw;
-  background: rgba(40,32,24,0.85);
+  background: rgba(40,32,24,0.55);
   border-left: 1px solid var(--border);
   backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
   transform: translateX(100%);
