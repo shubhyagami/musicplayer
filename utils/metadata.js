@@ -145,9 +145,9 @@ function readId3Tags(file) {
 window.fetchAIMetadata = async function(title, artist) {
   if (!title) return null;
 
-  var tryModel = async function(model, bodyExtra) {
+  var callModel = async function(model, bodyExtra) {
     var controller = new AbortController();
-    var timeout = setTimeout(function() { controller.abort(); }, 120000);
+    var timeout = setTimeout(function() { controller.abort(); }, 30000);
 
     try {
       var resp = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
@@ -176,7 +176,7 @@ window.fetchAIMetadata = async function(title, artist) {
       });
 
       clearTimeout(timeout);
-      if (!resp.ok) { console.warn('NVIDIA ' + model + ' HTTP', resp.status); return null; }
+      if (!resp.ok) { console.warn('AI ' + model + ' HTTP', resp.status); return null; }
 
       var data = await resp.json();
       var text = data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '';
@@ -192,40 +192,56 @@ window.fetchAIMetadata = async function(title, artist) {
       return null;
     } catch (e) {
       clearTimeout(timeout);
-      if (e.name === 'AbortError') { console.warn('NVIDIA ' + model + ' timed out'); return 'TIMEOUT'; }
-      console.warn('NVIDIA ' + model + ' error:', e);
+      if (e.name === 'AbortError') { return 'TIMEOUT'; }
+      console.warn('AI ' + model + ' error:', e);
       return null;
     }
   };
 
-  /* Try Gemma 4 31B first (user's preferred model, slower cold-start) */
-  var result = await tryModel('google/gemma-4-31b-it', {
+  /* Primary: Llama 3.2 3B (proven 0.4s response, fast & reliable) */
+  var result = await callModel('meta/llama-3.2-3b-instruct');
+  if (result && result !== 'TIMEOUT') return result;
+
+  /* Fallback: Gemma 4 31B (slower cold-start, user's preferred) */
+  console.warn('Llama 3.2 3B ' + (result === 'TIMEOUT' ? 'timed out' : 'failed') + ' \u2192 trying Gemma 4 31B');
+  return await callModel('google/gemma-4-31b-it', {
     top_p: 0.95,
     temperature: 1.0,
     chat_template_kwargs: { enable_thinking: true }
   });
-
-  if (result && result !== 'TIMEOUT') return result;
-
-  /* Fallback to fast Llama 3.2 3B if Gemma times out */
-  console.warn('Gemma 31B ' + (result === 'TIMEOUT' ? 'timed out' : 'failed') + ', falling back to Llama 3.2 3B');
-  return await tryModel('meta/llama-3.2-3b-instruct');
 };
 
-window.fetchAlbumArtFromInternet = async function(title, artist) {
-  if (!title) return null;
-  try {
-    var term = encodeURIComponent((title + ' ' + (artist || '')).trim());
-    var resp = await fetch('https://itunes.apple.com/search?term=' + term + '&entity=song&limit=1&country=US');
-    if (!resp.ok) return null;
-    var data = await resp.json();
-    if (data.results && data.results.length > 0) {
-      var artUrl = data.results[0].artworkUrl100;
-      if (artUrl) return artUrl.replace('100x100bb', '600x600bb');
+window.fetchAlbumArtFromInternet = async function(title, artist, album) {
+  if (!title && !album) return null;
+
+  var searchITunes = async function(term) {
+    try {
+      var resp = await fetch('https://itunes.apple.com/search?term=' + encodeURIComponent(term) + '&entity=song&limit=3&country=US', { signal: AbortSignal.timeout(10000) });
+      if (!resp.ok) return null;
+      var data = await resp.json();
+      if (data.results && data.results.length > 0) {
+        var artUrl = data.results[0].artworkUrl100;
+        if (artUrl) return artUrl.replace('100x100bb', '600x600bb');
+      }
+    } catch (e) {
+      if (e.name !== 'TimeoutError') console.warn('iTunes search error:', e);
     }
-  } catch (e) {
-    console.warn('Album art fetch error:', e);
+    return null;
+  };
+
+  /* Strategy 1: search by album + artist (most accurate) */
+  if (album) {
+    var byAlbum = (album + ' ' + (artist || '')).trim();
+    var url = await searchITunes(byAlbum);
+    if (url) { console.log('Album art found via album search:', byAlbum); return url; }
   }
+
+  /* Strategy 2: search by title + artist */
+  var byTitle = (title + ' ' + (artist || '')).trim();
+  var url2 = await searchITunes(byTitle);
+  if (url2) { console.log('Album art found via title search:', byTitle); return url2; }
+
+  console.warn('No album art found for:', title, artist, album);
   return null;
 };
 

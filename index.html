@@ -913,17 +913,26 @@ function App() {
     if (!engine.currentSong) { setLyrics(null); setInternetMeta({ year: '', album: '', genre: '' }); setInternetAlbumArt(null); return; }
     var song = engine.currentSong;
     var cancelled = false;
+    var artFound = false;
 
     window.fetchLyrics(song.title, song.artist, song.album, song.duration).then(function(result) {
       if (!cancelled) setLyrics(result);
     });
 
-    window.fetchAIMetadata(song.title, song.artist).then(function(mb) {
-      if (!cancelled && mb) setInternetMeta(mb);
+    window.fetchAlbumArtFromInternet(song.title, song.artist, null).then(function(url) {
+      if (!cancelled && url) { artFound = true; setInternetAlbumArt(url); }
     });
 
-    window.fetchAlbumArtFromInternet(song.title, song.artist).then(function(url) {
-      if (!cancelled && url) setInternetAlbumArt(url);
+    window.fetchAIMetadata(song.title, song.artist).then(function(mb) {
+      if (cancelled) return;
+      if (mb) {
+        setInternetMeta(mb);
+        if (mb.album && !artFound) {
+          window.fetchAlbumArtFromInternet(song.title, song.artist, mb.album).then(function(url) {
+            if (!cancelled && url) setInternetAlbumArt(url);
+          });
+        }
+      }
     });
 
     return function() { cancelled = true; };
