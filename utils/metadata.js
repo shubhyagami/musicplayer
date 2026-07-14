@@ -1,6 +1,7 @@
 var AUDIO_EXTENSIONS = ['.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.wma'];
 var LOCAL_MUSIC_DIR = 'music';
 var NVIDIA_API_KEY = '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';
+/* RAPIDAPI_KEY available for future use: e9f2c625ebmsh6cd2de7109f2f5ep1f9991jsn4f3b636412b2 */
 
 window.pickFolder = async function() {
   try {
@@ -241,8 +242,41 @@ window.fetchAlbumArtFromInternet = async function(title, artist, album) {
   var url2 = await searchITunes(byTitle);
   if (url2) { console.log('Album art found via title search:', byTitle); return url2; }
 
+  /* Strategy 3: Cover Art Archive via MusicBrainz (fallback when iTunes has nothing) */
+  if (album) {
+    var url3 = await window.fetchAlbumArtFromCoverArtArchive(album, artist);
+    if (url3) { console.log('Album art found via Cover Art Archive:', album); return url3; }
+  }
+
   console.warn('No album art found for:', title, artist, album);
   return null;
+};
+
+window.fetchAlbumArtFromCoverArtArchive = async function(album, artist) {
+  if (!album) return null;
+  try {
+    var query = 'release:"' + encodeURIComponent(album.replace(/"/g, '')) + '"';
+    if (artist && artist !== 'UNKNOWN ARTIST') {
+      query += ' AND artist:"' + encodeURIComponent(artist.replace(/"/g, '')) + '"';
+    }
+    var resp = await fetch('https://musicbrainz.org/ws/2/release?query=' + query + '&fmt=json&limit=3');
+    if (!resp.ok) return null;
+    var data = await resp.json();
+    if (!data.releases || data.releases.length === 0) return null;
+
+    for (var i = 0; i < data.releases.length; i++) {
+      var mbid = data.releases[i].id;
+      var caaUrl = 'https://coverartarchive.org/release/' + mbid + '/front-500.jpg';
+      try {
+        var headResp = await fetch(caaUrl, { method: 'HEAD', redirect: 'follow' });
+        if (headResp.ok) return caaUrl;
+      } catch (e) {}
+    }
+    return null;
+  } catch (e) {
+    console.warn('Cover Art Archive error:', e);
+    return null;
+  }
 };
 
 /* ---------- LOCAL MUSIC DIRECTORY SCAN ---------- */
