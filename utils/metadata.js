@@ -188,7 +188,7 @@ window.scanLocalMusicDir = async function(onProgress) {
 async function processUrlFile(url, name, index) {
   var song = {
     id: 'song-' + Date.now() + '-' + index + '-' + Math.random().toString(36).slice(2, 8),
-    title: window.stripExtension(name),
+    title: window.cleanSongTitle(window.stripExtension(name)),
     duration: 0,
     blobUrl: url,
     albumArtUrl: null,
