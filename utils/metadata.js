@@ -56,13 +56,9 @@ window.processAudioFiles = async function(files, onProgress) {
   var songs = [];
   var total = files.length;
 
-  for (var i = 0; i < total; i += 5) {
-    var batch = files.slice(i, i + 5);
-    var promises = batch.map(function(file, idx) { return processFile(file, i + idx); });
-    var results = await Promise.allSettled(promises);
-    results.forEach(function(r) {
-      if (r.status === 'fulfilled' && r.value) songs.push(r.value);
-    });
+  for (var i = 0; i < total; i++) {
+    var result = await processFile(files[i], i);
+    if (result) songs.push(result);
     if (onProgress) onProgress(Math.min(songs.length, total), total);
   }
 
@@ -172,13 +168,9 @@ window.scanLocalMusicDir = async function(onProgress) {
   var songs = [];
   var total = entries.length;
 
-  for (var i = 0; i < total; i += 5) {
-    var batch = entries.slice(i, i + 5);
-    var promises = batch.map(function(entry, idx) { return processUrlFile(entry.url, entry.name, i + idx); });
-    var results = await Promise.allSettled(promises);
-    results.forEach(function(r) {
-      if (r.status === 'fulfilled' && r.value) songs.push(r.value);
-    });
+  for (var i = 0; i < total; i++) {
+    var result = await processUrlFile(entries[i].url, entries[i].name, i);
+    if (result) songs.push(result);
     if (onProgress) onProgress(Math.min(songs.length, total), total);
   }
 
